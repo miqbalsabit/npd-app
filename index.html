@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NPD Business Management System</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.github.com; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#004ECC">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="NPD">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="offline-banner" class="offline-banner" hidden>Offline — perubahan tetap tersimpan di perangkat ini dan dikirim ke GitHub saat kembali online.</div>
+<div id="app"><div class="boot">Loading NPD…</div></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="tip" class="tip" hidden></div>
+<script src="js/backend/util.js"></script>
+<script src="js/backend/store.js"></script>
+<script src="js/backend/engine.js"></script>
+<script src="js/backend/router.js"></script>
+<script src="js/backend/ops.js"></script>
+<script src="js/backend/fin.js"></script>
+<script src="js/backend/reports.js"></script>
+<script src="js/backend/seed.js"></script>
+<script src="js/backend/sync.js"></script>
+<script src="js/app/core.js"></script>
+<script src="js/app/forms.js"></script>
+<script src="js/app/pages_ops.js"></script>
+<script src="js/app/pages_fin.js"></script>
+<script src="js/app/main.js"></script>
+</body>
+</html>
