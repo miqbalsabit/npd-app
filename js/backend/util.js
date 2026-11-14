@@ -29,6 +29,7 @@
   };
   const i = (d, key, required = false, minv = 0, maxv = 1e11, def = null, label) => {
     const v = d[key];
+    if (/(^|_)id$/.test(key)) maxv = Number.MAX_SAFE_INTEGER;   // record ids are large (time-based) so devices never clash
     if (v === undefined || v === null || v === '') { if (required) throw new ApiError(`${label || key} is required.`); return def; }
     let n = typeof v === 'string' ? Number(v.replace(/\./g, '').replace(/,/g, '')) : Number(v);
     if (!Number.isFinite(n)) throw new ApiError(`${label || key} must be a number.`);
