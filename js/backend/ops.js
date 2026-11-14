@@ -45,9 +45,7 @@
     if ('default_photo_fee' in d) clean.default_photo_fee = i(d, 'default_photo_fee', false, 0);
     if ('default_photo_mode' in d) clean.default_photo_mode = oneOf(d, 'default_photo_mode', PHOTO_MODES);
     if ('default_npd_share' in d) clean.default_npd_share = pct(d, 'default_npd_share', null, 'NPD share');
-    if ('default_saving_pct' in d) clean.default_saving_pct = pct(d, 'default_saving_pct', null, 'Operational Saving');
-    if ('default_petty_pct' in d) clean.default_petty_pct = pct(d, 'default_petty_pct', null, 'Petty Cash');
-    if (Number(clean.default_saving_pct ?? T.setting('default_saving_pct', 0)) + Number(clean.default_petty_pct ?? T.setting('default_petty_pct', 0)) > 100) throw new ApiError('Operational Saving + Petty Cash cannot exceed 100%.');
+    if ('default_petty_pct' in d) clean.default_petty_pct = pct(d, 'default_petty_pct', null, 'NPD Petty Cash');
     if ('default_venue_fund' in d) { if (!T.find('funds', f => f.code === d.default_venue_fund)) throw new ApiError('Unknown fund.'); clean.default_venue_fund = d.default_venue_fund; }
     const old = Object.fromEntries(Object.keys(clean).map(k => [k, T.setting(k)]));
     Object.entries(clean).forEach(([k, v]) => T.setSetting(k, v === null ? '' : v));
@@ -133,11 +131,10 @@
 
   // =============================================================== members
   function memberVals(d, memberId, force) {
-    const nick = s(d, 'nickname', true, 60, 'Nickname'), reclub = s(d, 'reclub_id', false, 40), wa = normalizeWa(s(d, 'whatsapp', false, 30));
+    const nick = s(d, 'nickname', true, 60, 'Nickname'), wa = normalizeWa(s(d, 'whatsapp', false, 30));
     if (wa && !(wa.length - 1 >= 9 && wa.length - 1 <= 15)) throw new ApiError('WhatsApp number looks invalid.');
-    if (reclub) { const dup = T.find('members', m => m.reclub_id === reclub && m.id !== (memberId || 0)); if (dup) throw new ApiError(`Reclub ID already used by ${dup.nickname} (${dup.member_code}).`, 409, { code: 'duplicate_reclub', existing: pick(dup, ['member_code', 'nickname']) }); }
     if (wa && !force) { const dup = T.find('members', m => m.whatsapp === wa && m.id !== (memberId || 0)); if (dup) throw new ApiError(`WhatsApp number is already used by ${dup.nickname} (${dup.member_code}).`, 409, { code: 'duplicate_whatsapp', existing: pick(dup, ['member_code', 'nickname']) }); }
-    return { reclub_id: reclub, nickname: nick, whatsapp: wa, notes: s(d, 'notes', false, 500) };
+    return { nickname: nick, whatsapp: wa, notes: s(d, 'notes', false, 500) };
   }
   function createMember(d, force, reg) {
     const v = memberVals(d, null, force), code = T.nextCode('members', 'member_code', 'NPD', 3);
@@ -157,7 +154,7 @@
   }
   function memberMatch(m, q) {
     const digits = q.replace(/\D/g, '');
-    return like(m.member_code, q) || like(m.reclub_id, q) || like(m.nickname, q) || (digits.length >= 3 && String(m.whatsapp || '').replace('+', '').includes(digits.replace(/^0+/, '')));
+    return like(m.member_code, q) || like(m.nickname, q) || (digits.length >= 3 && String(m.whatsapp || '').replace('+', '').includes(digits.replace(/^0+/, '')));
   }
   add('GET', '/members', 'view', ({ q }) => {
     const st = memberStats(), qq = (q.q || '').trim(), act_ = q.active === undefined ? '1' : q.active;
@@ -173,7 +170,7 @@
   add('GET', '/members/search', 'view', ({ q }) => {
     const qq = (q.q || '').trim(); if (qq.length < 1) return ok({ members: [] });
     const rows = sortBy(T.all('members').filter(m => m.active && memberMatch(m, qq)), m => (m.nickname || '').toLowerCase()).slice(0, 12);
-    return ok({ members: rows.map(m => pick(m, ['id', 'member_code', 'reclub_id', 'nickname', 'whatsapp'])) });
+    return ok({ members: rows.map(m => pick(m, ['id', 'member_code', 'nickname', 'whatsapp'])) });
   });
   add('POST', '/members', 'operations', ({ body: d }) => { const [id, code] = createMember(d, !!d.force); return ok({ id, member_code: code }); });
   add('PUT', '/members/<int:mid>', 'operations', ({ body: d }, mid) => {
@@ -222,8 +219,8 @@
     if (rows.length < 2) throw new ApiError('The file has no data rows.');
     const head = rows[0].map(h => h.trim().toLowerCase().replace(/[ _]/g, ''));
     const col = (...names) => { for (const n of names) if (head.includes(n)) return head.indexOf(n); return null; };
-    const ci = { nickname: col('nickname', 'nama', 'name'), reclub_id: col('reclubid', 'reclub'), whatsapp: col('whatsapp', 'whatsappnumber', 'wa', 'phone', 'nohp'), notes: col('notes', 'catatan') };
-    if (ci.nickname === null) throw new ApiError("A 'Nickname' column is required. Optional columns: Reclub ID, WhatsApp, Notes.");
+    const ci = { nickname: col('nickname', 'nama', 'name'), whatsapp: col('whatsapp', 'whatsappnumber', 'wa', 'phone', 'nohp'), notes: col('notes', 'catatan') };
+    if (ci.nickname === null) throw new ApiError("A 'Nickname' column is required. Optional columns: WhatsApp, Notes.");
     let created = 0; const skipped = [], seenR = new Set(), seenW = new Set();
     T.tx(() => {
       rows.slice(1).forEach((r, n) => {
@@ -231,8 +228,8 @@
         const gv = k => (ci[k] !== null && ci[k] < r.length && r[ci[k]] ? r[ci[k]].trim() : ''), d = {}; Object.keys(ci).forEach(k => { d[k] = gv(k); });
         try {
           const wa = normalizeWa(d.whatsapp);
-          if ((d.reclub_id && seenR.has(d.reclub_id)) || (wa && seenW.has(wa))) throw new ApiError('Duplicate within the file.');
-          createMember(d, false); seenR.add(d.reclub_id); seenW.add(wa); created++;
+          if ((wa && seenW.has(wa))) throw new ApiError('Duplicate within the file.');
+          createMember(d, false); seenW.add(wa); created++;
         } catch (e) { if (e instanceof ApiError) skipped.push({ row: n + 2, nickname: d.nickname, reason: e.message }); else throw e; }
       });
       log('import', 'member', null, { created, skipped: skipped.length });
@@ -269,7 +266,7 @@
   function sessionVals(d, ex = {}) {
     const v = {};
     v.name = s(d, 'name', true, 120, 'Session name'); v.sport_id = i(d, 'sport_id', true, 1, 1e11, null, 'Sport'); v.venue_id = i(d, 'venue_id', true, 1, 1e11, null, 'Venue');
-    v.organizer_id = i(d, 'organizer_id', false, 1); v.event_date = dt(d, 'event_date', true, 'Session date');
+    v.organizer_id = null; v.event_date = dt(d, 'event_date', true, 'Session date');
     v.start_time = tm(d, 'start_time', true, 'Start time'); v.end_time = tm(d, 'end_time', true, 'End time');
     if (v.end_time <= v.start_time) throw new ApiError('End time must be after start time.');
     v.description = s(d, 'description', false, 1000); v.max_participants = i(d, 'max_participants', false, 0, 1000, 0, 'Maximum participants');
@@ -284,7 +281,7 @@
     const vf = i(d, 'venue_fund_id', false, 1) || ex.venue_fund_id || E.defaultVenueFundId();
     if (!T.get('funds', vf)) throw new ApiError('Fund for the venue rental not found.');
     v.venue_fund_id = vf;
-    v.session_fee = i(d, 'session_fee', false, 0, 1e11, 0, 'Session fee'); v.target_participants = i(d, 'target_participants', false, 0, 1000, 0, 'Target participants');
+    v.session_fee = i(d, 'session_fee', false, 0, 1e11, 0, 'Session fee'); v.target_participants = v.max_participants;   // one number: capacity = target
     v.budget_extra = i(d, 'budget_extra', false, 0, 1e11, 0, 'Additional operational expenses');
     v.photo_mode = oneOf(d, 'photo_mode', PHOTO_MODES, 'none', 'Photography mode');
     if (v.photo_mode === 'none') { v.photographer_id = null; v.photo_fee = 0; v.npd_share_pct = Number(ex.npd_share_pct || 0); }
@@ -295,6 +292,49 @@
     }
     v.photographer_share_pct = Math.round((100 - v.npd_share_pct) * 1e4) / 1e4; return v;
   }
+  /** Venue rental is a real expense row (id = session id, so every device derives the very same record). */
+  const venueDate = (s, ex) => { const t = today(); if (ex) return ex.txn_date <= s.event_date ? ex.txn_date : s.event_date; return s.event_date < t ? s.event_date : t; };
+  /** One-time merge: Operational Saving + Petty Cash -> "NPD Petty Cash". Idempotent and safe to run on every device. */
+  function migrateFunds() {
+    const old = T.find('funds', f => f.code === 'operational_saving'), keep = T.find('funds', f => f.code === 'petty_cash');
+    if (!keep) return;
+    if (old) {
+      const oldPct = Number(T.setting('default_saving_pct', '0')) || 0, curPct = Number(T.setting('default_petty_pct', '5')) || 0;
+      T.update('funds', keep.id, { name: 'NPD Petty Cash', opening_balance: (keep.opening_balance || 0) + (old.opening_balance || 0) });
+      T.all('expenses').filter(e => e.source_fund_id === old.id).forEach(e => T.update('expenses', e.id, { source_fund_id: keep.id }));
+      T.all('sessions').filter(x => x.venue_fund_id === old.id).forEach(x => T.update('sessions', x.id, { venue_fund_id: keep.id }));
+      T.all('photographer_payments').filter(x => x.fund_id === old.id).forEach(x => T.update('photographer_payments', x.id, { fund_id: keep.id }));
+      T.all('fund_transactions').forEach(x => {
+        const a = x.from_fund_id === old.id ? keep.id : x.from_fund_id, b = x.to_fund_id === old.id ? keep.id : x.to_fund_id;
+        if (x.kind === 'transfer' && a === b) { T.remove('fund_transactions', x.id); return; }
+        if (a !== x.from_fund_id || b !== x.to_fund_id) T.update('fund_transactions', x.id, { from_fund_id: a, to_fund_id: b });
+      });
+      T.setSetting('default_petty_pct', String(oldPct + curPct)); T.setSetting('default_saving_pct', '0');
+      if (T.setting('default_venue_fund') === 'operational_saving') T.setSetting('default_venue_fund', 'petty_cash');
+      T.remove('funds', old.id);
+    } else if (keep.name !== 'NPD Petty Cash') T.update('funds', keep.id, { name: 'NPD Petty Cash' });
+  }
+  function ensureVenueExpenses() {
+    migrateFunds();
+    let n = 0; const ss = new Map(T.all('sessions').map(x => [x.id, x]));
+    for (const s of ss.values()) {
+      const ex = T.get('expenses', s.id), ok_ = ex && ex.auto === 'venue';
+      if (!(s.venue_cost > 0)) { if (ok_) { T.remove('expenses', ex.id); n++; } continue; }
+      if (ex && !ok_) continue;
+      const fund = s.venue_fund_id && T.get('funds', s.venue_fund_id) ? s.venue_fund_id : E.defaultVenueFundId();
+      const want = { txn_date: venueDate(s, ex), category: 'Venue Rental', description: `Venue – ${s.name}`, amount: s.venue_cost, session_id: s.id, source_fund_id: fund, auto: 'venue' };
+      if (!ex) { T.insert('expenses', Object.assign({ id: s.id, code: T.nextCode('expenses', 'code', 'EXP-', 6), payment_method: 'Cash', receipt: null, notes: 'Dibuat otomatis dari biaya venue sesi', created_by: 'system', is_demo: s.is_demo ? 1 : 0 }, want)); n++; }
+      else if (Object.keys(want).some(k => ex[k] !== want[k])) { T.update('expenses', ex.id, want); n++; }
+    }
+    T.all('expenses').filter(x => x.auto === 'venue' && !ss.has(x.session_id)).forEach(x => { T.remove('expenses', x.id); n++; });
+    return n;
+  }
+  function checkVenueFund(v, d, old) {
+    if (!(v.venue_cost > 0)) return;
+    if (old && old.venue_cost === v.venue_cost && old.venue_fund_id === v.venue_fund_id) return;
+    const fund = T.get('funds', v.venue_fund_id), ex = old ? T.get('expenses', old.id) : null;
+    NPDB.fin.checkOverdraw(fund, v.venue_cost, venueDate(v, ex), old ? 'ex' + old.id : null, d.force_fund);
+  }
   function syncFull(sid) {
     const r = T.get('sessions', sid); if (!r || !['Open Registration', 'Full'].includes(r.status) || !r.max_participants) return;
     const n = T.all('session_participants').filter(p => p.session_id === sid && p.payment_status !== 'Cancelled').length, nw = n >= r.max_participants ? 'Full' : 'Open Registration';
@@ -304,7 +344,8 @@
   add('POST', '/sessions', 'operations', ({ body: d }) => {
     const v = sessionVals(d), cf = findConflicts(v.venue_id, v.event_date, v.start_time, v.end_time);
     if (cf.length && !d.force && v.status !== 'Cancelled') throw new ApiError('This venue already has a session during those hours.', 409, { code: 'venue_conflict', conflicts: cf });
-    const code = T.nextCode('sessions', 'session_code', 'SES-', 4), r = T.insert('sessions', Object.assign({ session_code: code, cancel_reason: null, is_demo: 0 }, v));
+    checkVenueFund(v, d, null);
+    const code = T.nextCode('sessions', 'session_code', 'SES-', 4), r = T.insert('sessions', Object.assign({ session_code: code, cancel_reason: null, is_demo: 0 }, v)); ensureVenueExpenses();
     log('create', 'session', r.id, Object.assign({ code }, v)); return ok({ id: r.id, session_code: code });
   }, true);
   add('PUT', '/sessions/<int:sid>', 'operations', ({ body: d0 }, sid) => {
@@ -314,7 +355,8 @@
     const v = sessionVals(Object.assign({}, d, { venue_cost: d.venue_cost !== null && d.venue_cost !== undefined && d.venue_cost !== '' ? d.venue_cost : old.venue_cost }), old);
     const cf = findConflicts(v.venue_id, v.event_date, v.start_time, v.end_time, sid);
     if (cf.length && !d.force && v.status !== 'Cancelled') throw new ApiError('This venue already has a session during those hours.', 409, { code: 'venue_conflict', conflicts: cf });
-    const oldV = pick(old, Object.keys(v)); T.update('sessions', sid, v); syncFull(sid); log('update', 'session', sid, { old: oldV, new: v }); return ok();
+    checkVenueFund(v, d, old);
+    const oldV = pick(old, Object.keys(v)); T.update('sessions', sid, v); syncFull(sid); ensureVenueExpenses(); log('update', 'session', sid, { old: oldV, new: v }); return ok();
   });
   add('POST', '/sessions/<int:sid>/cancel', 'operations', ({ body }, sid) => { const reason = s(body, 'reason', false, 300); T.update('sessions', sid, { status: 'Cancelled', cancel_reason: reason }); log('cancel', 'session', sid, { reason }); return ok(); });
   add('POST', '/sessions/<int:sid>/reschedule', 'operations', ({ body: d }, sid) => {
@@ -322,13 +364,13 @@
     const nd = dt(d, 'event_date', true), st = tm(d, 'start_time', true), et = tm(d, 'end_time', true);
     if (et <= st) throw new ApiError('End time must be after start time.');
     const cf = findConflicts(old.venue_id, nd, st, et, sid); if (cf.length && !d.force) throw new ApiError('This venue already has a session during those hours.', 409, { code: 'venue_conflict', conflicts: cf });
-    T.update('sessions', sid, { event_date: nd, start_time: st, end_time: et }); log('reschedule', 'session', sid, { from: [old.event_date, old.start_time, old.end_time], to: [nd, st, et] }); return ok();
+    T.update('sessions', sid, { event_date: nd, start_time: st, end_time: et }); ensureVenueExpenses(); log('reschedule', 'session', sid, { from: [old.event_date, old.start_time, old.end_time], to: [nd, st, et] }); return ok();
   });
   add('DELETE', '/sessions/<int:sid>', 'operations', (c, sid) => {
     const paid = T.all('session_participants').filter(p => p.session_id === sid && p.amount_paid > 0).length;
-    const exp = T.all('expenses').filter(x => x.session_id === sid).length + T.all('photographer_payments').filter(x => x.session_id === sid).length;
+    const exp = T.all('expenses').filter(x => x.session_id === sid && x.auto !== 'venue').length + T.all('photographer_payments').filter(x => x.session_id === sid).length;
     if (paid || exp) throw new ApiError('This session has financial records. Cancel it instead of deleting so history is preserved.', 409);
-    T.filter('session_participants', p => p.session_id === sid).forEach(p => T.remove('session_participants', p.id)); T.remove('sessions', sid); log('delete', 'session', sid); return ok();
+    T.filter('session_participants', p => p.session_id === sid).forEach(p => T.remove('session_participants', p.id)); T.remove('sessions', sid); ensureVenueExpenses(); log('delete', 'session', sid); return ok();
   });
   add('GET', '/sessions', 'view', ({ q }) => {
     let ss = E.computeSessions(q.start || null, q.end || null, q.sport_id || null, q.venue_id || null, null, true);
@@ -348,7 +390,7 @@
       const m = T.get('members', p.member_id); if (!m) return null; const cal = E.participantCalc(sess, p);
       return Object.assign({}, p, { member_code: m.member_code, nickname: m.nickname, reclub_id: m.reclub_id, whatsapp: m.whatsapp, retained: cal.retained, due: sess.session_fee + (sess.photo_mode === 'excluded' && p.photo_selected ? sess.photo_fee : 0) });
     }).filter(Boolean);
-    const expenses = has('finance') ? sortBy(T.all('expenses').filter(x => x.session_id === sid), 'txn_date').map(x => pick(x, ['id', 'code', 'txn_date', 'category', 'description', 'amount', 'receipt'])) : [];
+    const expenses = has('finance') ? sortBy(T.all('expenses').filter(x => x.session_id === sid && x.auto !== 'venue'), 'txn_date').map(x => pick(x, ['id', 'code', 'txn_date', 'category', 'description', 'amount', 'receipt'])) : [];
     sess.conflicts = findConflicts(sess.venue_id, sess.event_date, sess.start_time, sess.end_time, sid);
     const fund = T.get('funds', sess.venue_fund_id); sess.venue_fund = fund ? fund.name : null;
     if (!has('finance')) parts.forEach(p => ['amount_paid', 'refund_amount', 'retained', 'due'].forEach(k => delete p[k]));
@@ -409,5 +451,5 @@
     return ok({ events: ev });
   });
 
-  NPDB.ops = { SESSION_STATUS, PAY_STATUS, ATTENDANCE, PHOTO_MODES, EXPENSE_CATS, spendOf, findConflicts };
+  NPDB.ops = { SESSION_STATUS, PAY_STATUS, ATTENDANCE, PHOTO_MODES, EXPENSE_CATS, spendOf, findConflicts, ensureVenueExpenses };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -79,6 +79,7 @@
         const startDirty = T.state.dirty, remote = await fetchRemote(c);
         let localOnly = 0;
         if (remote) { const m = T.mergeIn(remote.data); localOnly = m.localOnly; }
+        try { T.tx(() => NPDB.ops.ensureVenueExpenses()); } catch (e) { /* never block sync */ }
         if (!remote && T.isEmpty()) { NPDB.seed.seedBase(); }
         const needPush = !remote || startDirty > 0 || T.state.dirty > 0 || localOnly > 0 || (opts && opts.forcePush);
         if (!needPush) break;

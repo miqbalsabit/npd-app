@@ -4,8 +4,8 @@
   const NPDB = g.NPDB, T = NPDB.store, E = NPDB.engine, R = NPDB.router, { today, addDays, isoDate } = NPDB;
   const OLD = '1970-01-01T00:00:00.000Z';
   const DEFAULT_SETTINGS = { business_name: 'NPD – Network. Play. Discover.', currency: 'IDR', financial_period_start_month: '1', opening_cash: '0', default_photographer_id: '', default_photo_fee: '10000', default_photo_mode: 'included',
-    default_npd_share: '10', default_saving_pct: '10', default_petty_pct: '5', default_venue_fund: 'operational_saving', demo_loaded: '0' };
-  const FUNDS = [[1, 'operational_saving', 'Operational Saving', 'npd', null, 1], [2, 'petty_cash', 'Petty Cash', 'npd', null, 2], [3, 'personal_sabit', 'Personal – Sabit', 'personal', 'Sabit', 3], [4, 'personal_julio', 'Personal – Julio', 'personal', 'Julio', 4]];
+    default_npd_share: '10', default_petty_pct: '15', default_venue_fund: 'petty_cash', demo_loaded: '0' };
+  const FUNDS = [[2, 'petty_cash', 'NPD Petty Cash', 'npd', null, 2], [3, 'personal_sabit', 'Personal – Sabit', 'personal', 'Sabit', 3], [4, 'personal_julio', 'Personal – Julio', 'personal', 'Julio', 4]];
 
   /** Fixed ids + epoch timestamps: two devices that seed independently produce the *same* records, and any real edit wins the merge. */
   function seedBase() {
@@ -24,7 +24,7 @@
     const sport = Object.fromEntries(T.all('sports').map(s => [s.name, s.id])), org = Object.fromEntries(T.all('organizers').map(o => [o.name, o.id])), septian = T.find('photographers', p => p.name === 'Septian').id;
     const fund = Object.fromEntries(T.all('funds').map(f => [f.code, f.id])), prev = Object.fromEntries(T.all('funds').map(f => [f.code, f.opening_balance]));
     T.setSetting('demo_prev_openings', JSON.stringify(prev));
-    [['operational_saving', 1500000], ['petty_cash', 300000]].forEach(([code, amt]) => { const f = T.get('funds', fund[code]); T.update('funds', f.id, { opening_balance: prev[code] || amt }); });
+    [['petty_cash', 3500000]].forEach(([code, amt]) => { const f = T.get('funds', fund[code]); T.update('funds', f.id, { opening_balance: prev[code] || amt }); });
     const venues = [['Sunrise Pickleball Hub', 'Jl. Contoh Raya No. 12', 'Kemang', 150000, 'Parking, Toilets, Water refill, Lighting', 'Indoor', ['Pickleball', 'Badminton']],
       ['Garden Tennis Club', 'Jl. Taman Asri No. 5', 'Senayan', 200000, 'Parking, Toilets, Cafe', 'Outdoor', ['Tennis']], ['Arena Smash Badminton', 'Jl. Mawar No. 88', 'Tebet', 120000, 'Toilets, Water refill, Parking', 'Indoor', ['Badminton', 'Pickleball']]];
     const vid = venues.map(([n, addr, area, price, fac, setting, sps], i) => {
@@ -33,8 +33,8 @@
     });
     const mids = ['Andi', 'Bella', 'Citra', 'Dimas', 'Eka', 'Fajar', 'Gita', 'Hendra', 'Intan', 'Joko'].map((n, i) =>
       ins('members', { member_code: T.nextCode('members', 'member_code', 'NPD', 3), reclub_id: 'RC' + (10231 + i), nickname: n, whatsapp: NPDB.normalizeWa('0812000000' + String(i + 1).padStart(2, '0')), registered_at: day(-70 + i + 1), notes: 'Demo member', active: 1 }).id);
-    function mkSession(name, sp, ven, days, st, et, fee, vcost, mode, pfee, status, target, mx, vfund = 'operational_saving') {
-      const d = day(days), r = ins('sessions', { session_code: T.nextCode('sessions', 'session_code', 'SES-', 4), name, sport_id: sport[sp], venue_id: vid[ven], organizer_id: org[ven !== 1 ? 'Sabit' : 'Julio'], event_date: d, start_time: st, end_time: et,
+    function mkSession(name, sp, ven, days, st, et, fee, vcost, mode, pfee, status, target, mx, vfund = 'petty_cash') {
+      const d = day(days), r = ins('sessions', { session_code: T.nextCode('sessions', 'session_code', 'SES-', 4), name, sport_id: sport[sp], venue_id: vid[ven], organizer_id: null, event_date: d, start_time: st, end_time: et,
         description: 'Demo session', max_participants: mx, status, reg_open: day(days - 10), reg_close: day(days - 1), venue_cost: vcost, session_fee: fee, target_participants: target, budget_extra: 0, photo_mode: mode,
         photographer_id: mode !== 'none' ? septian : null, photo_fee: pfee, npd_share_pct: 10, photographer_share_pct: 90, venue_fund_id: fund[vfund], cancel_reason: null });
       return [r.id, days];
@@ -58,15 +58,15 @@
     let [s5, d5] = mkSession('Tennis Sunday Doubles', 'Tennis', 1, 12, '08:00', '10:00', 150000, 400000, 'excluded', 15000, 'Open Registration', 8, 8); reg(s5, d5, range(0, 4), set([0, 1]), 150000, { addon: 15000, photo: [0], attend: false });
     const exp = (days, cat, desc, amt, sid, method, src) => ins('expenses', { code: T.nextCode('expenses', 'code', 'EXP-', 6), txn_date: day(days), category: cat, description: desc, amount: amt, session_id: sid || null, source_fund_id: fund[src], payment_method: method || 'Cash', receipt: null, notes: null, created_by: 'demo' }).id;
     exp(-46, 'Amenities', 'Drinking water & towels', 60000, s1, 'Cash', 'petty_cash'); exp(-30, 'Transportation', 'Ball machine transport', 40000, s2, 'Cash', 'petty_cash'); exp(-16, 'Amenities', 'Water & snacks', 35000, s3, 'Cash', 'petty_cash');
-    const balls = exp(-40, 'Equipment Purchase', 'Pickleball balls (3 dozen)', 450000, null, 'Bank Transfer', 'personal_sabit'); exp(-35, 'Marketing', 'Instagram ads', 150000, null, 'Bank Transfer', 'personal_julio'); exp(-8, 'Operational Expenses', 'Scoreboard & signage', 120000, null, 'Cash', 'operational_saving');
+    const balls = exp(-40, 'Equipment Purchase', 'Pickleball balls (3 dozen)', 450000, null, 'Bank Transfer', 'personal_sabit'); exp(-35, 'Marketing', 'Instagram ads', 150000, null, 'Bank Transfer', 'personal_julio'); exp(-8, 'Operational Expenses', 'Scoreboard & signage', 120000, null, 'Cash', 'petty_cash');
     const ftx = (days, kind, frm, to, amt, notes, eid) => ins('fund_transactions', { code: T.nextCode('fund_transactions', 'code', 'FT-', 5), txn_date: day(days), kind, from_fund_id: frm ? fund[frm] : null, to_fund_id: fund[to], amount: amt, expense_id: eid || null, notes, created_by: 'demo' });
-    ftx(-45, 'transfer', 'operational_saving', 'petty_cash', 100000, 'Top up petty cash (demo)'); ftx(-50, 'contribution', null, 'personal_julio', 100000, 'Julio funded marketing (demo)'); ftx(-20, 'reimbursement', 'operational_saving', 'personal_sabit', 200000, 'Partial reimbursement of ball purchase (demo)', balls);
+    ftx(-50, 'contribution', null, 'personal_julio', 100000, 'Julio funded marketing (demo)'); ftx(-20, 'reimbursement', 'petty_cash', 'personal_sabit', 200000, 'Partial reimbursement of ball purchase (demo)', balls);
     ins('revenue_records', { code: T.nextCode('revenue_records', 'code', 'REV-', 6), txn_date: day(-25), category: 'Other Revenue', description: 'Merchandise sales (demo)', amount: 200000, payment_method: 'Cash', notes: null, created_by: 'demo' });
     ins('photographer_payments', { code: T.nextCode('photographer_payments', 'code', 'PAY-', 5), photographer_id: septian, session_id: s1, amount: 60000, status: 'Paid', paid_date: day(-40), fund_id: null, payment_method: 'Bank Transfer', notes: 'Partial payment (demo)', created_by: 'demo' });
-    const a = E.createProfitSharing(day(-50), day(-12), null, null, 'Demo – Period A', null, 1, 'demo'); E.finalizeProfitSharing(a, day(-11));
+    const a = E.createProfitSharing(day(-50), day(-12), null, 'Demo – Period A', null, 1, 'demo'); E.finalizeProfitSharing(a, day(-11));
     const line = T.filter('profit_sharing_lines', l => l.profit_sharing_id === a).sort((x, y) => x.id - y.id)[0]; E.payOrganizerLine(line.id, day(-8), true);
-    E.createProfitSharing(day(-11), day(-1), null, null, 'Demo – Period B', null, 1, 'demo');
-    T.setSetting('demo_loaded', '1'); return true;
+    E.createProfitSharing(day(-11), day(-1), null, 'Demo – Period B', null, 1, 'demo');
+    NPDB.ops.ensureVenueExpenses(); T.setSetting('demo_loaded', '1'); return true;
   }
 
   function clearDemo() {

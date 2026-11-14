@@ -44,7 +44,7 @@
     const [, size, off] = pageArgs(q, 25), byFund = {};
     rows.forEach(e => { const f = T.get('funds', e.source_fund_id); byFund[f.id] = byFund[f.id] || { name: f.name, t: 0, sort: f.sort }; byFund[f.id].t += e.amount; });
     const out = rows.slice(off, off + size).map(e => { const f = T.get('funds', e.source_fund_id), sess = e.session_id ? T.get('sessions', e.session_id) : null;
-      return Object.assign({}, e, { session_name: sess ? sess.name : null, source_fund: f.name, fund_kind: f.kind, reimbursed: reimbursedOf(e.id), classification: e.session_id ? 'Session Expense' : 'General Business Expense' }); });
+      return Object.assign({}, e, { session_name: sess ? sess.name : null, source_fund: f.name, fund_kind: f.kind, reimbursed: reimbursedOf(e.id), is_auto: e.auto === 'venue', classification: e.session_id ? 'Session Expense' : 'General Business Expense' }); });
     return ok({ expenses: out, total: rows.length, sum: sum(rows, e => e.amount), by_fund: sortBy(Object.values(byFund), 'sort').map(x => ({ name: x.name, t: x.t })) });
   });
   add('GET', '/expenses/<int:eid>', 'finance', (c, eid) => { const r = T.get('expenses', eid); if (!r) throw new ApiError('Expense not found.', 404); return ok({ expense: r }); });
@@ -56,6 +56,7 @@
   }, true);
   add('PUT', '/expenses/<int:eid>', 'finance', ({ body: d }, eid) => {
     const old = T.get('expenses', eid); if (!old) throw new ApiError('Expense not found.', 404);
+    if (old.auto) throw new ApiError('Biaya venue ini dibuat otomatis dari sesi. Ubah biaya atau sumber dananya di halaman sesi.', 409);
     const [v, fund] = expenseVals(d), receipt = 'receipt' in d ? receiptVal(d) : old.receipt, reimb = reimbursedOf(eid);
     if (reimb && (v.source_fund_id !== old.source_fund_id || v.amount < reimb)) throw new ApiError('This expense was already (partly) reimbursed. Remove the reimbursement first before changing its fund or lowering the amount.', 409);
     checkOverdraw(fund, v.amount, v.txn_date, 'ex' + eid, truthy(d.force));
@@ -63,6 +64,7 @@
   });
   add('DELETE', '/expenses/<int:eid>', 'finance', (c, eid) => {
     const old = T.get('expenses', eid); if (!old) throw new ApiError('Expense not found.', 404);
+    if (old.auto) throw new ApiError('Biaya venue ini dibuat otomatis dari sesi. Ubah biaya venue di halaman sesi (atau isi 0 untuk menghapus).', 409);
     if (T.find('fund_transactions', x => x.expense_id === eid)) throw new ApiError('A reimbursement is linked to this expense. Delete the reimbursement first.', 409);
     T.remove('expenses', eid); log('delete', 'expense', eid, old); return ok();
   });
@@ -98,7 +100,7 @@
       if (qq && !(e.description || '').toLowerCase().includes(qq) && !e.category.toLowerCase().includes(qq) && !(e.code || '').toLowerCase().includes(qq)) continue;
       out.push({ date: e.date, direction: e.direction, type: e.type, category: e.category, amount: e.amount, description: e.description, ref: e.ref, session_id: e.session_id, session: sess.get(e.session_id) || null, code: e.code,
         fund: funds.get(e.fund_id) || null, fund_to: funds.get(e.fund_to) || null, npd_cash: e.npd_cash, payment_method: e.payment_method || null, receipt: e.receipt || null, notes: e.notes || null, created_by: e.created_by || null, created_at: e.created_at || null,
-        editable: !!e.entity, entity: e.entity || null, entity_id: e.entity_id || null });
+        editable: !!e.entity && !e.auto, entity: e.entity || null, entity_id: e.entity_id || null });
     }
     out.sort((a, b) => (a.date + a.ref < b.date + b.ref ? 1 : -1));
     const cats = [...new Set(out.map(x => x.category))].sort(), [, size, off] = pageArgs(q, 25), cash = out.filter(x => (x.direction === 'in' || x.direction === 'out') && x.npd_cash);
@@ -120,7 +122,7 @@
       return { id: e.id, code: e.code, txn_date: e.txn_date, description: e.description, amount: e.amount, source_fund_id: e.source_fund_id, fund: f.name, reimbursed: rb, outstanding: e.amount - rb }; });
     const allocs = T.all('profit_sharing').filter(p => p.status === 'Calculated' || p.status === 'Paid').sort((a, b) => ((b.allocation_date || b.period_end) < (a.allocation_date || a.period_end) ? -1 : 1)).map(p => pick(p, ['code', 'label', 'allocation_date', 'period_start', 'period_end', 'saving_pct', 'saving_amount', 'petty_pct', 'petty_amount', 'status']));
     return ok({ funds: summ, transactions: fundTxRows(), reimbursable: reimb, allocations: allocs, total_npd: sum(summ.filter(f => f.kind === 'npd'), f => f.balance), owed_personal: sum(summ.filter(f => f.kind === 'personal'), f => Math.max(0, -f.balance)),
-      default_saving_pct: Number(T.setting('default_saving_pct', '10')), default_petty_pct: Number(T.setting('default_petty_pct', '5')) });
+      default_petty_pct: Number(T.setting('default_petty_pct', '15')) });
   });
   add('GET', '/funds/<int:fid>/ledger', 'finance', ({ q }, fid) => {
     const f = T.get('funds', fid); if (!f) throw new ApiError('Fund not found.', 404);
@@ -137,7 +139,7 @@
     const amount = i(d, 'amount', true, 1, 1e11, null, 'Amount');
     const v = { kind, amount, txn_date: dt(d, 'txn_date', false, 'Date') || today(), notes: s(d, 'notes', false, 300), from_fund_id: null, expense_id: null };
     const to = fundOf(i(d, 'to_fund_id', true, 1, 1e11, null, 'Destination fund'), 'Destination fund'); v.to_fund_id = to.id; let frm = null;
-    if (kind === 'transfer' || kind === 'reimbursement') { frm = fundOf(i(d, 'from_fund_id', true, 1, 1e11, null, 'Source fund'), 'Source fund'); if (frm.kind !== 'npd') throw new ApiError('Only NPD funds (Operational Saving, Petty Cash) can pay out here.'); v.from_fund_id = frm.id; }
+    if (kind === 'transfer' || kind === 'reimbursement') { frm = fundOf(i(d, 'from_fund_id', true, 1, 1e11, null, 'Source fund'), 'Source fund'); if (frm.kind !== 'npd') throw new ApiError('Only the NPD Petty Cash can pay out here.'); v.from_fund_id = frm.id; }
     if (kind === 'transfer') { if (to.kind !== 'npd') throw new ApiError('Transfers move money between NPD funds only.'); if (frm.id === to.id) throw new ApiError('Choose two different funds.'); }
     else if (to.kind !== 'personal') throw new ApiError('Choose a personal fund (Sabit or Julio).');
     if (kind === 'reimbursement') {
@@ -197,14 +199,14 @@
     recs.filter(r => r.status !== 'Pending').forEach(r => r.lines.forEach(l => { const x = per[l.organizer_name] = per[l.organizer_name] || { name: l.organizer_name, allocated: 0, paid: 0 }; x.allocated += l.amount; x.paid += l.paid ? l.amount : 0; }));
     Object.values(per).forEach(x => { x.outstanding = x.allocated - x.paid; });
     const conf = recs.filter(r => r.status !== 'Pending');
-    return ok({ records: recs, organizers: Object.values(per), totals: { saving: sum(conf, r => r.saving_amount), petty: sum(conf, r => r.petty_amount), organizers: sum(conf, r => r.remaining_profit) },
-      active_organizers: sortBy(T.all('organizers').filter(o => o.active), 'id').map(o => pick(o, ['id', 'name', 'share_pct'])), default_saving_pct: Number(T.setting('default_saving_pct', '10')), default_petty_pct: Number(T.setting('default_petty_pct', '5')) });
+    return ok({ records: recs, organizers: Object.values(per), totals: { petty: sum(conf, r => (r.saving_amount || 0) + (r.petty_amount || 0)), organizers: sum(conf, r => r.remaining_profit) },
+      active_organizers: sortBy(T.all('organizers').filter(o => o.active), 'id').map(o => pick(o, ['id', 'name', 'share_pct'])), default_petty_pct: Number(T.setting('default_petty_pct', '15')) });
   });
   add('GET', '/profit-sharing/preview', 'finance', ({ q }) => {
-    try { return ok(E.profitSharingPreview(dt(q, 'start', true), dt(q, 'end', true), pct(q, 'saving_pct', null, 'Operational Saving'), pct(q, 'petty_pct', null, 'Petty Cash'))); }
+    try { return ok(E.profitSharingPreview(dt(q, 'start', true), dt(q, 'end', true), pct(q, 'petty_pct', null, 'NPD Petty Cash'))); }
     catch (e) { if (e instanceof NPDB.ValueErr) throw new ApiError(e.message); throw e; }
   });
-  add('POST', '/profit-sharing', 'finance', ({ body: d }) => conflict409(() => { const pid = E.createProfitSharing(dt(d, 'start', true), dt(d, 'end', true), pct(d, 'saving_pct', null, 'Operational Saving'), pct(d, 'petty_pct', null, 'Petty Cash'), s(d, 'label', false, 100), s(d, 'notes', false, 300), 0, uname()); log('create', 'profit_sharing', pid, d); return ok({ id: pid }); }), true);
+  add('POST', '/profit-sharing', 'finance', ({ body: d }) => conflict409(() => { const pid = E.createProfitSharing(dt(d, 'start', true), dt(d, 'end', true), pct(d, 'petty_pct', null, 'NPD Petty Cash'), s(d, 'label', false, 100), s(d, 'notes', false, 300), 0, uname()); log('create', 'profit_sharing', pid, d); return ok({ id: pid }); }), true);
   add('POST', '/profit-sharing/<int:pid>/recalculate', 'finance', (c, pid) => conflict409(() => { E.recalcProfitSharing(pid); log('recalculate', 'profit_sharing', pid); return ok(); }));
   add('POST', '/profit-sharing/<int:pid>/finalize', 'finance', (c, pid) => conflict409(() => { E.finalizeProfitSharing(pid); log('finalize', 'profit_sharing', pid); return ok(); }));
   add('POST', '/profit-sharing/lines/<int:lid>/pay', 'finance', ({ body: d }, lid) => conflict409(() => { const paid = !['0', 'false'].includes(String(d.paid === undefined ? true : d.paid).toLowerCase()); E.payOrganizerLine(lid, dt(d, 'paid_date', false), paid); log(paid ? 'pay' : 'unpay', 'profit_sharing_line', lid, d); return ok(); }));
@@ -248,7 +250,7 @@
     T.all('session_participants').forEach(sp => { const s_ = sm.get(sp.session_id), m = T.get('members', sp.member_id); if (!s_ || !m || sp.payment_status === 'Cancelled' || s_.status === 'Draft' || s_.event_date < start || s_.event_date > end) return; (mem[m.id] = mem[m.id] || { nickname: m.nickname, member_code: m.member_code, joined: 0 }).joined++; });
     out.top_members = Object.values(mem).sort((a, b) => b.joined - a.joined || (a.nickname < b.nickname ? -1 : 1)).slice(0, 5);
     if (fin) {
-      Object.assign(out.kpis, { revenue: ps.organizer_revenue, expenses: ps.total_expenses, profit: ps.net_profit, cash_collected: ps.net_collected, photographer_share: ps.photographer_share, receivable: ps.receivable, total_cash_balance: E.totalCashBalance(today()),
+      Object.assign(out.kpis, { revenue: ps.organizer_revenue, expenses: ps.total_expenses, profit: ps.net_profit, cash_collected: ps.net_collected, photographer_share: ps.photographer_share, receivable: ps.receivable, total_cash_balance: E.totalCashBalance(today()), net_cash: E.netCash(today()),
         funds: E.fundSummary('2000-01-01', today()).map(f => ({ name: f.name, balance: f.closing, kind: f.kind })) });
       out.expense_breakdown = expenseBreakdown(start, end); out.series = E.monthlySeries(start, end);
       const by = {}; sess.forEach(x => { const b = by[x.sport] = by[x.sport] || { sport: x.sport, color: x.sport_color, revenue: 0, profit: 0, sessions: 0 }; b.revenue += x.organizer_revenue; b.profit += x.net_profit; b.sessions++; });

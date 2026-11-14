@@ -21,7 +21,6 @@ function openMemberForm(member, onDone, opts = {}) {
   const editing = !!(member && member.id);
   const fields = [
     { name: 'nickname', label: 'Nickname', required: true, max: 60, full: true, hint: 'Shown everywhere in the app.' },
-    { name: 'reclub_id', label: 'Reclub ID', max: 40, hint: 'Must be unique when provided.' },
     { name: 'whatsapp', label: 'WhatsApp Number', type: 'tel', hint: 'Saved as +62… automatically.' },
     { name: 'notes', label: 'Notes', type: 'textarea', full: true, max: 500 },
     ...(editing ? [{ name: 'active', label: 'Active member', type: 'checkbox', full: true }] : []),
@@ -30,7 +29,7 @@ function openMemberForm(member, onDone, opts = {}) {
     title: editing ? `Edit ${member.member_code}` : 'Add Member', fields, values: { ...member, active: editing ? member.active : 1 },
     top: editing ? html`<div class="alert info" style="margin-bottom:12px">${icon('tag', 18)}<span>Member ID <b>${member.member_code}</b> is permanent and cannot be changed.</span></div>` : '',
     onSubmit: async (d, ctx) => {
-      const body = { nickname: d.nickname, reclub_id: d.reclub_id, whatsapp: d.whatsapp, notes: d.notes, ...(editing ? { active: d.active } : {}) };
+      const body = { nickname: d.nickname, whatsapp: d.whatsapp, notes: d.notes, ...(editing ? { active: d.active } : {}) };
       const send = force => editing ? api('PUT', `/api/members/${member.id}`, { ...body, force }) : api('POST', '/api/members', { ...body, force }, { idem: ctx.key });
       let r;
       try { r = await send(false); }
@@ -62,12 +61,11 @@ function openParticipantForm(session, existing, onDone) {
   ];
   const picker = editing ? html`<div class="alert info" style="margin-bottom:12px">${icon('user', 18)}<span><b>${existing.nickname}</b> · ${existing.member_code}</span></div>` : html`
     <div id="picker"><div class="form-section">Member</div>
-      <div class="searchbox"><span>${icon('search', 18)}</span><input class="inp" id="msearch" placeholder="Search Member ID, Reclub ID, nickname or WhatsApp" autocomplete="off" inputmode="search"></div>
+      <div class="searchbox"><span>${icon('search', 18)}</span><input class="inp" id="msearch" placeholder="Search Member ID, nickname or WhatsApp" autocomplete="off" inputmode="search"></div>
       <div id="msuggest"></div><div id="msel"></div>
       <button type="button" class="btn sm" id="toggle-new" style="margin-top:10px">${icon('plus', 16)} New member</button>
       <div id="newmember" class="hide form-grid" style="margin-top:10px">
         <div class="field full"><label>Nickname <span class="req">*</span></label><input class="inp" id="nm_nick" maxlength="60"></div>
-        <div class="field"><label>Reclub ID</label><input class="inp" id="nm_reclub" maxlength="40"></div>
         <div class="field"><label>WhatsApp</label><input class="inp" id="nm_wa" type="tel" inputmode="tel"></div></div></div>`;
   const values = editing ? { ...existing } : { payment_status: 'Waiting for Payment', attendance: 'Not Yet Confirmed', paid_date: todayISO() };
   const m = formModal({
@@ -85,11 +83,11 @@ function openParticipantForm(session, existing, onDone) {
       sync();
       if (editing) return;
       const sug = $('#msuggest', m.el), selBox = $('#msel', m.el);
-      const showSel = () => { mount(selBox, sel ? html`<div class="alert ok" style="margin-top:8px">${icon('check', 18)}<span><b>${sel.nickname}</b> · ${sel.member_code}${sel.reclub_id ? ' · ' + sel.reclub_id : ''}${sel.whatsapp ? ' · ' + sel.whatsapp : ''}</span></div>` : ''); };
+      const showSel = () => { mount(selBox, sel ? html`<div class="alert ok" style="margin-top:8px">${icon('check', 18)}<span><b>${sel.nickname}</b> · ${sel.member_code}${sel.whatsapp ? ' · ' + sel.whatsapp : ''}</span></div>` : ''); };
       const search = debounce(async () => {
         const q = $('#msearch', m.el).value.trim(); if (!q) { mount(sug, ''); return; }
         const r = await GET('/api/members/search', { q });
-        mount(sug, r.members.length ? html`<div class="suggest">${r.members.map(x => html`<div class="list-item" data-pick="${x.id}"><div class="avatar">${x.nickname[0]}</div><div class="grow"><div class="t">${x.nickname}</div><div class="muted xs">${x.member_code}${x.reclub_id ? ' · ' + x.reclub_id : ''}${x.whatsapp ? ' · ' + x.whatsapp : ''}</div></div></div>`)}</div>` : html`<div class="muted small" style="margin-top:8px">No member found – use “New member”.</div>`);
+        mount(sug, r.members.length ? html`<div class="suggest">${r.members.map(x => html`<div class="list-item" data-pick="${x.id}"><div class="avatar">${x.nickname[0]}</div><div class="grow"><div class="t">${x.nickname}</div><div class="muted xs">${x.member_code}${x.whatsapp ? ' · ' + x.whatsapp : ''}</div></div></div>`)}</div>` : html`<div class="muted small" style="margin-top:8px">No member found – use “New member”.</div>`);
         sug._r = r.members;
       }, 200);
       $('#msearch', m.el).addEventListener('input', search);
@@ -101,7 +99,7 @@ function openParticipantForm(session, existing, onDone) {
       if (editing) { await api('PUT', `/api/participants/${existing.id}`, body); ctx.modal.close(); toast('Registration updated'); onDone && onDone(); return; }
       if (creating) {
         const nick = $('#nm_nick', ctx.modal.el).value.trim(); if (!nick) throw new ApiError('New member nickname is required.');
-        body.new_member = { nickname: nick, reclub_id: $('#nm_reclub', ctx.modal.el).value.trim(), whatsapp: $('#nm_wa', ctx.modal.el).value.trim() };
+        body.new_member = { nickname: nick, whatsapp: $('#nm_wa', ctx.modal.el).value.trim() };
       } else { if (!sel) throw new ApiError('Select a member first (or add a new one).'); body.member_id = sel.id; }
       const send = extra => api('POST', `/api/sessions/${session.id}/participants`, { ...body, ...extra }, { idem: ctx.key });
       let r;
@@ -126,7 +124,7 @@ async function pickSession({ title, filter, onPick, hint }) {
 }
 
 // ------------------------------------------------------------------ expenses / revenue
-const fundLabel = f => `${f.name} · ${rp(f.balance)}${f.kind === 'personal' ? (f.balance < 0 ? ' (owed)' : '') : f.balance < 0 ? ' (overdrawn)' : ''}`;
+const fundLabel = f => f.kind === 'personal' ? `${f.name} (talangi pribadi, nanti diganti)` : `${f.name} · ${rp(f.balance)}${f.balance < 0 ? ' (minus)' : ''}`;
 async function fundOptions(kinds) {
   const r = await GET('/api/funds');
   return r.funds.filter(f => !kinds || kinds.includes(f.kind)).map(f => ({ v: f.id, l: fundLabel(f) }));
@@ -248,27 +246,27 @@ function openQuickPayment(onDone) {
 async function openFundForm(kind, onDone, preset = {}) {
   const editing = !!preset.id;
   const r = await GET('/api/funds'), npd = r.funds.filter(f => f.kind === 'npd'), per = r.funds.filter(f => f.kind === 'personal');
-  const opt = list => list.map(f => ({ v: f.id, l: fundLabel(f) }));
-  const titles = { transfer: 'Transfer between funds', contribution: 'Personal funding contribution', reimbursement: 'Reimburse a personal expense' };
-  const notes = { transfer: 'Moves money between NPD funds. It is not revenue and not an expense.', contribution: 'Money a team member puts into NPD. It is a funding source – never counted as earned revenue.', reimbursement: 'NPD pays a team member back for an expense they paid personally. Linked to the original expense, so nothing is counted twice.' };
+  const petty = npd[0];
+  const titles = { contribution: 'Tambah modal dari pribadi', reimbursement: 'Reimburse / ganti uang organizer' };
+  const notes = { contribution: 'Uang pribadi yang dimasukkan organizer untuk NPD. Ini modal, bukan pendapatan. Mengurangi utang NPD ke orang tersebut.', reimbursement: `NPD mengganti uang organizer dari ${petty ? petty.name : 'NPD Petty Cash'}. Boleh sebagian. Terhubung ke pengeluaran aslinya, jadi tidak dihitung dua kali.` };
   const fields = [];
-  if (kind === 'transfer' || kind === 'reimbursement') fields.push({ name: 'from_fund_id', label: kind === 'transfer' ? 'From fund' : 'Paid from (NPD fund)', type: 'select', required: true, options: opt(npd), placeholder: 'Select…' });
-  fields.push({ name: 'to_fund_id', label: kind === 'transfer' ? 'To fund' : 'Personal fund', type: 'select', required: true, options: opt(kind === 'transfer' ? npd : per), placeholder: 'Select…' });
-  if (kind === 'reimbursement') fields.push({ name: 'expense_id', label: 'Original expense', type: 'select', required: true, full: true, placeholder: 'Select the expense being repaid…', options: r.reimbursable.filter(x => x.outstanding > 0 || x.id == preset.expense_id).map(x => ({ v: x.id, l: `${x.code} · ${x.description} · ${rp(x.outstanding)} unreimbursed (${x.fund})` })) });
-  fields.push({ name: 'amount', label: 'Amount (Rp)', type: 'money', required: true }, { name: 'txn_date', label: 'Date', type: 'date', required: true }, { name: 'notes', label: 'Notes', full: true, max: 300 });
+  if (kind === 'reimbursement') fields.push({ name: 'expense_id', label: 'Pengeluaran yang diganti', type: 'select', required: true, full: true, placeholder: 'Pilih pengeluaran…', options: r.reimbursable.filter(x => x.outstanding > 0 || x.id == preset.expense_id).map(x => ({ v: x.id, l: `${x.description} · sisa ${rp(x.outstanding)} (${x.fund.replace('Personal – ', '')})` })) });
+  else fields.push({ name: 'to_fund_id', label: 'Atas nama', type: 'select', required: true, options: per.map(f => ({ v: f.id, l: f.name.replace('Personal – ', '') })), placeholder: 'Pilih…' });
+  fields.push({ name: 'amount', label: 'Jumlah (Rp)', type: 'money', required: true }, { name: 'txn_date', label: 'Tanggal', type: 'date', required: true }, { name: 'notes', label: 'Catatan', full: true, max: 300 });
   formModal({
     title: editing ? `Edit ${preset.code}` : titles[kind], size: 'sm', fields, values: { txn_date: todayISO(), ...preset },
     top: html`<div class="alert info" style="margin-bottom:12px">${icon('info', 18)}<span>${notes[kind]}</span></div>`,
     onOpen: kind === 'reimbursement' ? (m, form) => {
-      const ex = $('[name=expense_id]', form), to = $('[name=to_fund_id]', form), amt = $('[name=amount]', form);
-      ex.addEventListener('change', () => { const x = r.reimbursable.find(y => y.id == ex.value); if (x) { to.value = x.source_fund_id; if (!amt.value) amt.value = num(x.outstanding); } }); if (ex.value && !editing) ex.dispatchEvent(new Event('change'));
+      const ex = $('[name=expense_id]', form), amt = $('[name=amount]', form);
+      ex.addEventListener('change', () => { const x = r.reimbursable.find(y => y.id == ex.value); if (x && !amt.value) amt.value = num(x.outstanding); }); if (ex.value && !editing) ex.dispatchEvent(new Event('change'));
     } : null,
     onSubmit: async (d, ctx) => {
       d.kind = kind;
+      if (kind === 'reimbursement') { const x = r.reimbursable.find(y => y.id == d.expense_id); if (!x) throw new Error('Pilih pengeluaran yang diganti.'); d.to_fund_id = x.source_fund_id; d.from_fund_id = petty.id; }
       const send = force => editing ? api('PUT', `/api/fund-transactions/${preset.id}`, { ...d, force }) : api('POST', '/api/fund-transactions', { ...d, force }, { idem: ctx.key });
       try { await send(false); }
-      catch (e) { if (e.data && e.data.code === 'fund_overdraw' && await confirmBox({ title: 'Fund would be overdrawn', message: e.message + ' Record it anyway?', confirmText: 'Record anyway', danger: true })) await send(true); else throw e; }
-      ctx.modal.close(); toast('Saved'); onDone && onDone();
+      catch (e) { if (e.data && e.data.code === 'fund_overdraw' && await confirmBox({ title: 'Saldo NPD Petty Cash tidak cukup', message: e.message + ' Tetap catat?', confirmText: 'Tetap catat', danger: true })) await send(true); else throw e; }
+      ctx.modal.close(); toast('Tersimpan'); onDone && onDone();
     },
   });
 }

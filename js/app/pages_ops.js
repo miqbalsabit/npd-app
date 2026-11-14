@@ -30,17 +30,16 @@ route('#/dashboard', () => guard(async () => {
           ${kpi('Total Revenue', rp(k.revenue), `Cash collected ${rp(k.cash_collected)} incl. photographer share ${rp(k.photographer_share)}`, { accent: true, icon: 'trend' })}
           ${kpi('Total Operational Expenses', rp(k.expenses), 'Session + general', { icon: 'receipt' })}
           ${kpi('Net Business Profit', rp(k.profit), k.receivable ? `Receivable ${rp(k.receivable)} not counted` : 'After all expenses', { icon: 'coin', cls: profitCls(k.profit) })}
-          ${kpi('Total Cash Balance', rp(k.total_cash_balance), 'All NPD funds', { icon: 'shield' })}` : ''}
+          ${kpi('Total Cash Balance', rp(k.total_cash_balance), 'Uang tunai NPD sekarang, termasuk NPD Petty Cash', { icon: 'shield' })}
+          <div data-netcash style="cursor:pointer">${kpi('Sisa Bersih NPD', rp(k.net_cash.net), 'Setelah semua utang · ketuk untuk rincian', { icon: 'wallet', cls: profitCls(k.net_cash.net) })}</div>` : ''}
         ${kpi('Upcoming Sessions', k.upcoming_sessions, `${k.sessions} in period · ${k.completed} completed`, { icon: 'calendar' })}
         ${kpi('Total Registered Members', k.members_total, `${k.participants} paid participations in period`, { icon: 'users' })}
       </div>
       ${fin ? html`
       <div class="grid g-main" style="margin-bottom:14px">
-        <div class="card"><div class="card-title"><h2>Revenue vs Expenses</h2><span class="muted small">Monthly</span></div>${barLineChart(d.series)}</div>
         <div class="card"><div class="card-title"><h2>Revenue by Sport</h2></div>${d.by_sport.length ? donut(d.by_sport.map(s => ({ label: s.sport, value: s.revenue, color: s.color }))) : html`<div class="muted">No sessions in this period.</div>`}</div>
       </div>
       <div class="grid g2" style="margin-bottom:14px">
-        <div class="card"><div class="card-title"><h2>Profit Trend</h2><span class="muted small">Net profit by month</span></div>${lineChart(d.series.map(s => ({ l: MONTHS[+s.month.slice(5) - 1], v: s.profit })), { label: 'Net profit by month' })}</div>
         <div class="card"><div class="card-title"><h2>Session Performance</h2><span class="muted small">Avg profit ${rp(d.performance.avg_profit)} · ${d.performance.count} completed</span></div>
           ${d.performance.count ? html`<h3 class="small muted" style="margin-bottom:2px">MOST PROFITABLE</h3>${hbars(d.performance.best.map(s => ({ label: s.name, value: s.net_profit })), { color: C.blue })}
           <h3 class="small muted" style="margin:12px 0 2px">LOWEST PROFIT</h3>${hbars(d.performance.worst.map(s => ({ label: s.name, value: s.net_profit })), { color: C.sky })}` : html`<div class="muted">No completed sessions in this period.</div>`}</div>
@@ -66,6 +65,10 @@ route('#/dashboard', () => guard(async () => {
   on(v, 'click', '[data-go]', (e, t) => go(t.dataset.go));
   on(v, 'click', '[data-q]', (e, t) => quickAction(t.dataset.q));
   on(v, 'click', '[data-export]', () => openExportModal(dashState));
+  on(v, 'click', '[data-netcash]', async () => {
+    const n = (await GET('/api/dashboard', { start: dashState.start, end: dashState.end })).kpis.net_cash, r = (l, val, cls = '') => html`<div class="row-sum"><span>${l}</span><b class="${cls}">${val}</b></div>`;
+    openModal({ title: 'Sisa Bersih NPD', size: 'sm', body: html`${r('Total Cash Balance (uang tunai sekarang)', rp(n.cash))}${r('− Utang ke fotografer', rp(n.photographer), 'neg')}${r('− Bagi hasil organizer belum dibayar', rp(n.organizer_profit), 'neg')}${r('− Utang ke organizer (talangan)', rp(n.organizer_debt), 'neg')}<div class="row-sum total"><span>Sisa bersih NPD</span><b>${rp(n.net)}</b></div><div class="muted small" style="margin-top:8px">Ini uang yang benar-benar milik NPD setelah semua kewajiban dibayar.</div>` });
+  });
 }), 'dashboard');
 
 function quickAction(q) {
@@ -115,16 +118,15 @@ async function sessionForm(id) {
   const v = view(), fin = can('finance'), set = M().settings;
   let s = {};
   if (id) { const r = await GET('/api/sessions/' + id); s = r.session; s.start_time = ftime(s.start_time); s.end_time = ftime(s.end_time); }
-  else { const q = hashQuery(); s = { status: 'Draft', event_date: q.date || '', start_time: '08:00', end_time: '10:00', max_participants: 16, target_participants: 12, photo_mode: fin ? (set.default_photo_mode || 'none') : 'none', photographer_id: set.default_photographer_id || '', photo_fee: set.default_photo_fee || 0, npd_share_pct: set.default_npd_share || 10, organizer_id: '' }; }
+  else { const q = hashQuery(); s = { status: 'Draft', event_date: q.date || '', start_time: '08:00', end_time: '10:00', max_participants: 16, photo_mode: fin ? (set.default_photo_mode || 'none') : 'none', photographer_id: set.default_photographer_id || '', photo_fee: set.default_photo_fee || 0, npd_share_pct: set.default_npd_share || 10, organizer_id: '' }; }
   if (fin && !s.venue_fund_id) s.venue_fund_id = (M().funds.find(f => f.code === set.default_venue_fund) || M().funds[0] || {}).id;
   const fields = [
     { section: 'Basic information' },
     { name: 'name', label: 'Session name', required: true, max: 120, full: true },
     { name: 'sport_id', label: 'Sport type', type: 'select', required: true, options: sportOpts(), placeholder: 'Select sport…' },
     { name: 'venue_id', label: 'Venue', type: 'select', required: true, options: venueOpts(), placeholder: 'Select venue…' },
-    { name: 'organizer_id', label: 'Organizer', type: 'select', options: M().organizers.filter(o => o.active).map(o => ({ v: o.id, l: o.name })), placeholder: 'Select organizer…' },
     { name: 'status', label: 'Session status', type: 'select', options: ENUM().session_status },
-    { name: 'event_date', label: 'Session date', type: 'date', required: true }, { name: 'max_participants', label: 'Maximum participants', type: 'number', min: 0 },
+    { name: 'event_date', label: 'Session date', type: 'date', required: true }, { name: 'max_participants', label: 'Max participants (kapasitas & target)', type: 'number', min: 0 },
     { name: 'start_time', label: 'Start time', type: 'time', required: true }, { name: 'end_time', label: 'End time', type: 'time', required: true },
     { name: 'description', label: 'Session description', type: 'textarea', full: true, max: 1000 },
     { section: 'Registration schedule' },
@@ -134,7 +136,6 @@ async function sessionForm(id) {
       { name: 'venue_cost', label: 'Venue rental cost (Rp)', type: 'money', hint: 'Auto-filled from the venue price and duration. Saved with the session, so later venue price changes never alter this record.' },
       { name: 'venue_fund_id', label: 'Venue rental paid from (Source of Fund)', type: 'select', options: M().funds.map(f => ({ v: f.id, l: f.name })) },
       { name: 'session_fee', label: 'Session fee per participant (Rp)', type: 'money' },
-      { name: 'target_participants', label: 'Target participants', type: 'number', min: 0 },
       { name: 'budget_extra', label: 'Additional operational expenses – budget (Rp)', type: 'money' },
       { section: 'Photography configuration' },
       { name: 'photo_mode', label: 'Photography mode', type: 'select', options: [{ v: 'included', l: 'Included (in session fee)' }, { v: 'excluded', l: 'Excluded (optional add-on)' }, { v: 'none', l: 'No photography' }], full: true },
@@ -156,7 +157,7 @@ async function sessionForm(id) {
     const mode = g('photo_mode').value, none = mode === 'none';
     ['photographer_id', 'photo_fee', 'npd_share_pct'].forEach(n => $(`[data-field=${n}]`, form).classList.toggle('hide', none));
     $('label[for=f_photo_fee]', form).firstChild.textContent = mode === 'excluded' ? 'Photography add-on price per participant (Rp)' : 'Photography fee per participant, inside session fee (Rp)';
-    const fee = +g('session_fee').value.replace(/\D/g, '') || 0, pf = +g('photo_fee').value.replace(/\D/g, '') || 0, tp = +g('target_participants').value || 0, npd = +g('npd_share_pct').value || 0;
+    const fee = +g('session_fee').value.replace(/\D/g, '') || 0, pf = +g('photo_fee').value.replace(/\D/g, '') || 0, tp = +g('max_participants').value || 0, npd = +g('npd_share_pct').value || 0;
     mount($('#photo-info', v), none ? '' : html`<div class="alert info">${icon('camera', 18)}<span>Photographer receives <b>${pctf(100 - npd)}</b> · NPD keeps <b>${pctf(npd)}</b> of photography revenue.${mode === 'excluded' ? ' Only participants who choose the add-on count.' : ''} At ${tp} paid participants${mode === 'included' ? `: photography revenue ${rp(tp * pf)} → photographer ${rp(Math.round(tp * pf * (100 - npd) / 100))}, NPD ${rp(Math.round(tp * pf * npd / 100))}.` : ' (if all choose the add-on): ' + rp(tp * pf) + ' revenue.'}${mode === 'included' && pf > fee ? ' ⚠ Photography fee exceeds the session fee.' : ''}</span></div>`);
   };
   const hint = debounce(async () => {
@@ -167,17 +168,25 @@ async function sessionForm(id) {
   ['venue_id', 'start_time', 'end_time'].forEach(n => g(n).addEventListener('change', () => { prefillCost(); hint(); }));
   g('event_date').addEventListener('change', hint);
   if (fin && !id) g('photographer_id').addEventListener('change', () => { const p = M().photographers.find(x => x.id == g('photographer_id').value); if (!p) return; if (p.default_fee != null) g('photo_fee').value = num(p.default_fee); if (p.default_npd_share != null) g('npd_share_pct').value = p.default_npd_share; photoUI(); });
-  if (fin) { ['photo_mode', 'session_fee', 'photo_fee', 'target_participants', 'npd_share_pct'].forEach(n => g(n).addEventListener('input', photoUI)); g('photo_mode').addEventListener('change', photoUI); photoUI(); }
+  if (fin) { ['photo_mode', 'session_fee', 'photo_fee', 'max_participants', 'npd_share_pct'].forEach(n => g(n).addEventListener('input', photoUI)); g('photo_mode').addEventListener('change', photoUI); photoUI(); }
   hint();
   $('#save', v).addEventListener('click', async e => {
     const btn = e.currentTarget; $$('.form-err', v).forEach(x => x.remove());
     const d = readForm(form, fields);
     btn.disabled = true; btn.textContent = 'Saving…';
-    const send = force => id ? api('PUT', '/api/sessions/' + id, { ...d, force }) : api('POST', '/api/sessions', { ...d, force }, { idem });
+    let ff = false, cf = false;
+    const send = () => id ? api('PUT', '/api/sessions/' + id, { ...d, force: cf, force_fund: ff }) : api('POST', '/api/sessions', { ...d, force: cf, force_fund: ff }, { idem });
     try {
       let r;
-      try { r = await send(false); }
-      catch (er) { if (er.data.code === 'venue_conflict' && await confirmConflicts(er.data.conflicts)) r = await send(true); else throw er; }
+      for (let tries = 0; tries < 3 && !r; tries++) {
+        try { r = await send(); }
+        catch (er) {
+          const code = er.data && er.data.code;
+          if (code === 'venue_conflict' && await confirmConflicts(er.data.conflicts)) cf = true;
+          else if (code === 'fund_overdraw' && await confirmBox({ title: 'Fund would be overdrawn', message: er.message + ' Simpan sesi anyway?', confirmText: 'Simpan anyway', danger: true })) ff = true;
+          else throw er;
+        }
+      }
       await refreshMeta(); toast(id ? 'Session updated' : `Session ${r.session_code} created`); go('#/sessions/' + (id || r.id));
     } catch (er) { showErr($('.card', v), er.message); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     finally { btn.disabled = false; btn.textContent = id ? 'Save changes' : 'Create session'; }
@@ -227,7 +236,7 @@ route('#/sessions/(\\d+)', id => guard(async () => {
       <div class="card" style="margin-bottom:14px">
         <div class="card-title"><h2>Participants (${ps.length})</h2>${ops && s.status !== 'Cancelled' ? html`<button class="btn primary sm" id="a-add">${icon('plus', 16)} Add participant</button>` : ''}</div>
         ${table([
-          { label: 'Member', render: p => html`<div class="strong">${p.nickname}</div><div class="muted xs">${p.member_code}${p.reclub_id ? ' · ' + p.reclub_id : ''}</div>` },
+          { label: 'Member', render: p => html`<div class="strong">${p.nickname}</div><div class="muted xs">${p.member_code}</div>` },
           { label: 'WhatsApp', render: p => p.whatsapp ? raw(`<a href="https://wa.me/${esc(p.whatsapp.replace('+', ''))}" target="_blank" rel="noopener">${esc(p.whatsapp)}</a>`) : '—' },
           { label: 'Payment', render: p => ops ? html`<select class="inp sm-sel" data-pay="${p.id}" style="min-height:36px;padding:4px 28px 4px 8px">${ENUM().payment_status.map(x => html`<option ${x === p.payment_status ? raw('selected') : ''}>${x}</option>`)}</select>` : badge(p.payment_status) },
           ...(fin ? [{ label: 'Amount', num: true, render: p => p.payment_status === 'Waiting for Payment' ? html`<span class="muted">due ${rp(p.due)}</span>` : html`${rp(p.retained)}${p.refund_amount ? html`<div class="xs muted">refund ${rp(p.refund_amount)}</div>` : ''}` }] : []),
@@ -237,7 +246,7 @@ route('#/sessions/(\\d+)', id => guard(async () => {
         ], ps, { empty: emptyState('No participants yet', 'Register members to start collecting payments.', ops ? html`<button class="btn primary sm" id="a-add2">Add participant</button>` : '') })}</div>
       ${fin && r.expenses.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Session expenses</h2><button class="btn sm" id="a-exp">${icon('plus', 16)} Add</button></div>${table([{ label: 'ID', key: 'code' }, { label: 'Date', render: e => fdate(e.txn_date) }, { label: 'Category', key: 'category' }, { label: 'Description', key: 'description' }, { label: 'Amount', num: true, render: e => rp(e.amount) }], r.expenses)}</div>` : (fin ? html`<div style="margin-bottom:14px"><button class="btn sm" id="a-exp">${icon('plus', 16)} Add session expense</button></div>` : '')}
       <div class="card"><div class="card-title"><h2>Details</h2></div><div class="kv">
-        <div><span>Organizer</span>${s.organizer || '—'}</div><div><span>Registration window</span>${s.reg_open ? fdate(s.reg_open) : '—'} → ${s.reg_close ? fdate(s.reg_close) : '—'}</div>
+<div><span>Registration window</span>${s.reg_open ? fdate(s.reg_open) : '—'} → ${s.reg_close ? fdate(s.reg_close) : '—'}</div>
         ${fin ? html`<div><span>Session fee</span>${rp(s.session_fee)}</div><div><span>Photography</span>${PHOTO_LABEL[s.photo_mode]}${s.photographer ? ' · ' + s.photographer : ''}${s.photo_mode !== 'none' ? ' · ' + rp(s.photo_fee) : ''}</div>` : ''}
         <div style="grid-column:1/-1"><span>Description</span>${s.description || '—'}</div></div></div>`);
     return r;
@@ -403,8 +412,8 @@ function venueForm(x, onDone) {
 const memState = { q: '', active: '1', sort: '', page: 1 };
 route('#/members', () => guard(async () => {
   const v = view(), fin = can('finance');
-  mount(v, html`${pageHead('Member Database', 'Simple member records: Member ID, Reclub ID, nickname and WhatsApp.', can('operations') ? html`<button class="btn" id="imp">${icon('upload', 16)} Import</button><button class="btn primary" id="add">${icon('plus', 18)} Add Member</button>` : '')}
-    <div class="toolbar"><div class="searchbox"><span>${icon('search', 18)}</span><input class="inp" id="q" placeholder="Search Member ID, Reclub ID, nickname or WhatsApp" value="${memState.q}" inputmode="search"></div>
+  mount(v, html`${pageHead('Member Database', 'Simple member records: Member ID, nickname and WhatsApp.', can('operations') ? html`<button class="btn" id="imp">${icon('upload', 16)} Import</button><button class="btn primary" id="add">${icon('plus', 18)} Add Member</button>` : '')}
+    <div class="toolbar"><div class="searchbox"><span>${icon('search', 18)}</span><input class="inp" id="q" placeholder="Search Member ID, nickname or WhatsApp" value="${memState.q}" inputmode="search"></div>
       <select class="inp" id="f-active"><option value="1">Active</option><option value="0" ${memState.active === '0' ? raw('selected') : ''}>Inactive</option><option value="all" ${memState.active === 'all' ? raw('selected') : ''}>All</option></select>
       <select class="inp" id="f-sort"><option value="">Sort: Member ID</option><option value="nickname">Nickname A–Z</option><option value="joined">Most sessions</option>${fin ? '<option value="spend">Highest spending</option>' : ''}<option value="last">Last participation</option><option value="newest">Newest</option></select></div><div id="mlist"></div>
     <input type="file" id="impfile" accept=".csv" class="hide">`);
@@ -413,7 +422,7 @@ route('#/members', () => guard(async () => {
     window._members = r.members;
     mount($('#mlist', v), html`${table([
       { label: 'Member ID', render: m => html`<b>${m.member_code}</b>${m.active ? '' : html` ${badge('Inactive', 'grey')}`}${demoTag(m)}` },
-      { label: 'Nickname', render: m => html`<span class="strong">${m.nickname}</span>` }, { label: 'Reclub ID', render: m => m.reclub_id || '—' }, { label: 'WhatsApp', render: m => m.whatsapp || '—' },
+      { label: 'Nickname', render: m => html`<span class="strong">${m.nickname}</span>` }, { label: 'WhatsApp', render: m => m.whatsapp || '—' },
       { label: 'Registered', render: m => fdate(m.registered_at) }, { label: 'Sessions', num: true, key: 'joined' },
       { label: '', act: true, render: m => can('operations') ? html`<button class="icon-btn sm" data-edit="${m.id}" aria-label="Edit">${icon('edit', 18)}</button><button class="icon-btn sm red" data-del="${m.id}" aria-label="Delete">${icon('trash', 18)}</button>` : '' }],
       r.members, { rowAttr: m => `class="click" data-go="#/members/${m.id}"`, empty: emptyState('No members found', 'Add a member or import a CSV/Excel file.', can('operations') ? html`<button class="btn primary sm" id="add2">Add member</button>` : '') })}${pager(r.total, memState.page, 25)}`);
@@ -431,7 +440,7 @@ route('#/members', () => guard(async () => {
 }), 'members');
 
 function importDialog(done) {
-  const m = openModal({ title: 'Import members', body: html`<p style="margin-top:0">Upload a <b>.csv</b> file with a header row (di Excel: File → Save As → CSV). Columns: <b>Nickname</b> (required), <b>Reclub ID</b>, <b>WhatsApp</b>, <b>Notes</b>.</p><div class="alert info">${icon('info', 18)}<span>Rows with a duplicate Reclub ID or WhatsApp number are skipped and listed so nothing is duplicated. Full names, emails and Instagram are intentionally not stored.</span></div><div class="field" style="margin-top:14px"><label>File</label><input class="inp" type="file" id="ifile" accept=".csv"></div><div id="iresult" style="margin-top:12px"></div>`, footer: html`<button class="btn" data-close>Close</button><button class="btn primary" id="go-imp">Import</button>` });
+  const m = openModal({ title: 'Import members', body: html`<p style="margin-top:0">Upload a <b>.csv</b> file with a header row (di Excel: File → Save As → CSV). Columns: <b>Nickname</b> (required), <b>WhatsApp</b>, <b>Notes</b>.</p><div class="alert info">${icon('info', 18)}<span>Rows with a duplicate Reclub ID or WhatsApp number are skipped and listed so nothing is duplicated. Full names, emails and Instagram are intentionally not stored.</span></div><div class="field" style="margin-top:14px"><label>File</label><input class="inp" type="file" id="ifile" accept=".csv"></div><div id="iresult" style="margin-top:12px"></div>`, footer: html`<button class="btn" data-close>Close</button><button class="btn primary" id="go-imp">Import</button>` });
   on(m.el, 'click', '#go-imp', async e => {
     const f = $('#ifile', m.el).files[0]; if (!f) { showErr(m.body, 'Choose a file first.'); return; }
     const b = e.currentTarget; b.disabled = true; const fd = new FormData(); fd.append('file', f);
@@ -446,10 +455,10 @@ route('#/members/(\\d+)', id => guard(async () => {
   const load = async () => {
     const r = await GET(`/api/members/${id}/profile`), m = r.member; cur = m;
     mount(v, html`<a href="#/members" class="small">${icon('chevL', 14)} Members</a>
-      ${pageHead(html`${m.nickname} ${m.active ? '' : badge('Inactive', 'grey')} ${demoTag(m)}`, html`${m.member_code}${m.reclub_id ? ' · Reclub ' + m.reclub_id : ''}`, can('operations') ? html`<button class="btn" id="edit">${icon('edit', 16)} Edit</button>` : '')}
+      ${pageHead(html`${m.nickname} ${m.active ? '' : badge('Inactive', 'grey')} ${demoTag(m)}`, html`${m.member_code}`, can('operations') ? html`<button class="btn" id="edit">${icon('edit', 16)} Edit</button>` : '')}
       <div class="grid g4" style="margin-bottom:14px">${kpi('Sessions registered', m.registered)}${kpi('Sessions paid', m.paid)}${kpi('Sessions attended', m.attended)}${fin ? kpi('Total spending', rp(m.spend)) : kpi('Favorite sport', m.favorite_sport || '—')}</div>
       <div class="grid g2" style="margin-bottom:14px"><div class="card"><div class="card-title"><h2>Profile</h2></div><div class="kv">
-        <div><span>Member ID</span>${m.member_code}</div><div><span>Reclub ID</span>${m.reclub_id || '—'}</div><div><span>Nickname</span>${m.nickname}</div>
+        <div><span>Member ID</span>${m.member_code}</div><div><span>Nickname</span>${m.nickname}</div>
         <div><span>WhatsApp</span>${m.whatsapp ? raw(`<a href="https://wa.me/${esc(m.whatsapp.replace('+', ''))}" target="_blank" rel="noopener">${esc(m.whatsapp)}</a>`) : '—'}</div>
         <div><span>Registration date</span>${fdate(m.registered_at)}</div><div><span>Favorite sport</span>${m.favorite_sport || '—'}</div>
         <div><span>First session</span>${fdate(m.first_date)}</div><div><span>Last session</span>${fdate(m.last_date)}</div><div style="grid-column:1/-1"><span>Notes</span>${m.notes || '—'}</div></div></div>
@@ -467,7 +476,7 @@ route('#/activity', () => guard(async () => {
   const draw = async () => {
     const r = await GET('/api/members/activity', { start: actState.start, end: actState.end });
     const tabs = [['most_active', 'Most Active'], ['most_frequent', 'Most Frequent'], ...(fin ? [['top_spenders', 'Top Spending']] : []), ['popular_sports', 'Popular Sports'], ['all', 'All Members']];
-    const memTable = rows => table([{ label: '#', render: (m, i) => i + 1 }, { label: 'Member ID', key: 'member_code' }, { label: 'Reclub ID', render: m => m.reclub_id || '—' }, { label: 'Nickname', render: m => html`<a href="#/members/${m.id}" class="strong">${m.nickname}</a>` },
+    const memTable = rows => table([{ label: '#', render: (m, i) => i + 1 }, { label: 'Member ID', key: 'member_code' }, { label: 'Nickname', render: m => html`<a href="#/members/${m.id}" class="strong">${m.nickname}</a>` },
       { label: 'Sessions', num: true, key: 'joined' }, { label: 'Sports', num: true, key: 'sports' }, ...(fin ? [{ label: 'Spending', num: true, render: m => rp(m.spend) }] : []), { label: 'Last played', render: m => fdate(m.last_date) }, { label: 'Frequency', render: m => html`${badge(m.frequency, m.frequency === 'Very frequent' ? 'green' : m.frequency === 'Regular' ? '' : 'grey')} <span class="muted xs">${m.per_month}/mo</span>` }], rows, { empty: emptyState('No participation yet', 'Activity appears once members join sessions in this period.') });
     mount(v, html`${pageHead('Member Activity / Royalty', 'Internal tracking of how often members play. No rewards or liabilities are generated automatically.')}
       ${rangeBar(actState)}

@@ -12,7 +12,7 @@
     ['Financial Reports', 'revenue_breakdown', 'Revenue Breakdown'], ['Financial Reports', 'expense_breakdown', 'Operational Expense Breakdown'], ['Financial Reports', 'cashflow', 'Cash Flow'],
     ['Financial Reports', 'fund_balance', 'Fund Balance Report'], ['Financial Reports', 'source_of_fund', 'Source of Fund Report'], ['Financial Reports', 'receivables_payables', 'Receivables and Payables'],
     ['Photography Reports', 'photo_sessions', 'Photography Revenue, NPD Share & Photographer Share'], ['Photography Reports', 'photo_payables', 'Outstanding Photographer Payables'], ['Photography Reports', 'photo_payments', 'Photographer Payment History'],
-    ['Profit Allocation Reports', 'alloc_saving', 'Operational Saving Allocation'], ['Profit Allocation Reports', 'alloc_petty', 'Petty Cash Allocation'], ['Profit Allocation Reports', 'dist_sabit', 'Sabit Profit Distribution'],
+    ['Profit Allocation Reports', 'alloc_petty', 'NPD Petty Cash Allocation'], ['Profit Allocation Reports', 'dist_sabit', 'Sabit Profit Distribution'],
     ['Profit Allocation Reports', 'dist_julio', 'Julio Profit Distribution'], ['Profit Allocation Reports', 'alloc_history', 'Historical Profit Allocation'],
     ['Member Reports', 'members', 'Member Participation'], ['Member Reports', 'member_activity', 'Member Activity'], ['Member Reports', 'top_spending', 'Top Spending Members'], ['Member Reports', 'most_active', 'Most Active Members'],
   ];
@@ -69,9 +69,8 @@
   }
   const endOr = x => (x.end !== '2100-12-31' ? x.end : today());
   const allocRecords = x => sortBy(T.all('profit_sharing').filter(p => p.period_end >= x.start && p.period_start <= x.end), 'period_start', 'id').reverse().map(r => Object.assign({}, r, { lines: sortBy(T.all('profit_sharing_lines').filter(l => l.profit_sharing_id === r.id), 'id') }));
-  function allocFund(x, which) {
-    const k = which === 'saving' ? 'saving' : 'petty';
-    const r = allocRecords(x).map(v => ({ code: v.code, label: v.label, period_start: v.period_start, period_end: v.period_end, profit: v.eligible_profit, pct: v[k + '_pct'], amount: v[k + '_amount'], date: v.allocation_date, status: v.status }));
+  function allocFund(x) {
+    const r = allocRecords(x).map(v => ({ code: v.code, label: v.label, period_start: v.period_start, period_end: v.period_end, profit: v.eligible_profit, pct: (v.saving_pct || 0) + (v.petty_pct || 0), amount: (v.saving_amount || 0) + (v.petty_amount || 0), date: v.allocation_date, status: v.status }));
     const cols = [C('code', 'Allocation ID'), C('label', 'Period'), C('profit', 'Total Business Profit', 'money'), C('pct', 'Percentage', 'pct'), C('amount', 'Amount Allocated', 'money'), C('date', 'Allocation Date', 'date'), C('status', 'Status')];
     return { columns: cols, rows: r, totals: totals(cols, r.filter(v => v.status !== 'Pending'), S(['profit', 'amount'])) };
   }
@@ -85,28 +84,28 @@
     T.all('session_participants').forEach(sp => {
       const s = sm.get(sp.session_id), m = mm.get(sp.member_id); if (!s || !m || sp.payment_status === 'Cancelled') return;
       if (s.event_date < x.start || s.event_date > x.end) return; if (x.sport && s.sport_id != x.sport) return; if (x.venue && s.venue_id != x.venue) return; if (x.sess && s.id != x.sess) return; if (x.member && m.id != x.member) return;
-      const r = by.get(m.id) || { member_code: m.member_code, reclub_id: m.reclub_id, nickname: m.nickname, joined: 0, paid: 0, attended: 0, _sp: new Set(), spend: 0, first_date: s.event_date, last_date: s.event_date };
+      const r = by.get(m.id) || { member_code: m.member_code, nickname: m.nickname, joined: 0, paid: 0, attended: 0, _sp: new Set(), spend: 0, first_date: s.event_date, last_date: s.event_date };
       r.joined++; if (['Paid', 'Partially Refunded'].includes(sp.payment_status)) r.paid++; if (sp.attendance === 'Attended') r.attended++; r._sp.add(s.sport_id);
       if (['Paid', 'Partially Refunded', 'Refunded'].includes(sp.payment_status)) r.spend += (sp.amount_paid || 0) - (sp.payment_status === 'Refunded' && !sp.refund_amount ? (sp.amount_paid || 0) : (sp.refund_amount || 0));
       if (s.event_date < r.first_date) r.first_date = s.event_date; if (s.event_date > r.last_date) r.last_date = s.event_date; by.set(m.id, r);
     });
     return [...by.values()].map(r => { r.sports = r._sp.size; delete r._sp; const months = Math.max(1, (new Date(r.last_date) - new Date(r.first_date)) / 864e5 / 30.4); r.freq = r1(r.joined / months); return r; });
   }
-  const MEMC = [C('member_code', 'Member ID'), C('reclub_id', 'Reclub ID'), C('nickname', 'Nickname'), C('joined', 'Sessions Joined', 'int'), C('paid', 'Sessions Paid', 'int'), C('attended', 'Attended', 'int'), C('sports', 'Sports Played', 'int'), C('spend', 'Total Spending', 'money'), C('last_date', 'Last Participation', 'date')];
+  const MEMC = [C('member_code', 'Member ID'), C('nickname', 'Nickname'), C('joined', 'Sessions Joined', 'int'), C('paid', 'Sessions Paid', 'int'), C('attended', 'Attended', 'int'), C('sports', 'Sports Played', 'int'), C('spend', 'Total Spending', 'money'), C('last_date', 'Last Participation', 'date')];
   const by2 = (f1, f2) => (a, b) => (f1(b) - f1(a)) || (f2 ? f2(b) - f2(a) : 0);
 
   const B = {
     overall(x) {
       const ps = E.periodSummary(x.start, x.end, x.sport, x.venue, x.sess), venueCost = sum(ps.sessions, s => s.venue_cost);
-      const L = (section, item, amount) => ({ section, item, amount }), sp = Number(T.setting('default_saving_pct', '10')), pp = Number(T.setting('default_petty_pct', '5'));
-      let saving = 0, petty = 0, remaining = 0; try { [saving, petty, remaining] = E.allocate(ps.net_profit, sp, pp, T.all('organizers').filter(o => o.active)); } catch (e) { if (!(e instanceof E.ValueErr)) throw e; }
+      const L = (section, item, amount) => ({ section, item, amount }), pp = Number(T.setting('default_petty_pct', '15'));
+      let petty = 0, remaining = 0; try { [petty, remaining] = E.allocate(ps.net_profit, pp, T.all('organizers').filter(o => o.active)); } catch (e) { if (!(e instanceof E.ValueErr)) throw e; }
       return { columns: [C('section', 'Section'), C('item', 'Item'), C('amount', 'Amount', 'money')], totals: {}, rows: [
         L('Cash', 'Gross cash collected from participants', ps.gross_collected), L('Cash', 'Less: refunds', -ps.refunds), L('Cash', 'Net cash retained (incl. photographer share)', ps.net_collected - ps.other_revenue),
         L('Cash', 'Outstanding receivables (waiting for payment)', ps.receivable), L('Liability', 'Photographer share (payable – not NPD revenue)', ps.photographer_share),
         L('Revenue', 'Session fee revenue (excl. photography)', ps.session_fee_revenue), L('Revenue', 'NPD photography share', ps.npd_photo_share), L('Revenue', 'Other revenue', ps.other_revenue), L('Revenue', 'Total business revenue', ps.organizer_revenue),
         L('Operational Expenses', 'Venue rental (sessions)', venueCost), L('Operational Expenses', 'Other session operational expenses', ps.session_expenses - venueCost),
         L('Operational Expenses', 'General business operational expenses', ps.general_expenses), L('Operational Expenses', 'Total operational expenses', ps.total_expenses), L('Profit', 'Net business profit', ps.net_profit),
-        L('Allocation', `Operational Saving at default ${sp}% (indicative)`, saving), L('Allocation', `Petty Cash at default ${pp}% (indicative)`, petty), L('Allocation', 'Remaining organizer profit (indicative)', remaining)] };
+        L('Allocation', `NPD Petty Cash at default ${pp}% (indicative)`, petty), L('Allocation', 'Remaining organizer profit (indicative)', remaining)] };
     },
     monthly(x) { const r = monthRows(...rangeMonths(x)); return { columns: MCOLS, rows: r, totals: totals(MCOLS, r, MSUM) }; },
     annual(x) { const y = x.start !== '2000-01-01' ? x.start.slice(0, 4) : String(new Date().getFullYear()), r = monthRows(`${y}-01-01`, `${y}-12-31`); return { columns: MCOLS, rows: r, totals: totals(MCOLS, r, MSUM) }; },
@@ -192,15 +191,15 @@
       const cols = [C('code', 'Payment ID'), C('paid_date', 'Payment Date', 'date'), C('photographer', 'Photographer'), C('session', 'Related Session'), C('amount', 'Payment Amount', 'money'), C('status', 'Status'), C('fund', 'Paid From'), C('payment_method', 'Method'), C('notes', 'Notes')];
       return { columns: cols, rows: r, totals: totals(cols, r.filter(v => v.status === 'Paid'), S(['amount'])) };
     },
-    alloc_saving: x => allocFund(x, 'saving'), alloc_petty: x => allocFund(x, 'petty'), dist_sabit: x => dist(x, 'Sabit'), dist_julio: x => dist(x, 'Julio'),
+    alloc_petty: x => allocFund(x), dist_sabit: x => dist(x, 'Sabit'), dist_julio: x => dist(x, 'Julio'),
     alloc_history(x) {
       const recs = allocRecords(x), names = [...new Set(recs.flatMap(r => r.lines.map(l => l.organizer_name)))].sort((a, b) => ((a !== 'Sabit') - (b !== 'Sabit')) || ((a !== 'Julio') - (b !== 'Julio')) || (a < b ? -1 : 1));
-      const rows = recs.map(r => { const row = { code: r.code, label: r.label, period_start: r.period_start, period_end: r.period_end, eligible_profit: r.eligible_profit, saving_pct: r.saving_pct, saving_amount: r.saving_amount, petty_pct: r.petty_pct, petty_amount: r.petty_amount, remaining_profit: r.remaining_profit, allocation_date: r.allocation_date, status: r.status, created_by: r.created_by, notes: r.notes };
+      const rows = recs.map(r => { const row = { code: r.code, label: r.label, period_start: r.period_start, period_end: r.period_end, eligible_profit: r.eligible_profit, petty_pct: (r.saving_pct || 0) + (r.petty_pct || 0), petty_amount: (r.saving_amount || 0) + (r.petty_amount || 0), remaining_profit: r.remaining_profit, allocation_date: r.allocation_date, status: r.status, created_by: r.created_by, notes: r.notes };
         names.forEach((n, i) => { const ln = r.lines.find(l => l.organizer_name === n); row['o' + i + 'p'] = ln ? ln.pct : null; row['o' + i + 'a'] = ln ? ln.amount : 0; }); return row; });
-      let cols = [C('code', 'Allocation ID'), C('label', 'Period'), C('eligible_profit', 'Total Business Profit', 'money'), C('saving_pct', 'Op. Saving %', 'pct'), C('saving_amount', 'Operational Saving', 'money'), C('petty_pct', 'Petty Cash %', 'pct'), C('petty_amount', 'Petty Cash', 'money'), C('remaining_profit', 'Remaining Organizer Profit', 'money')];
+      let cols = [C('code', 'Allocation ID'), C('label', 'Period'), C('eligible_profit', 'Total Business Profit', 'money'), C('petty_pct', 'NPD Petty Cash %', 'pct'), C('petty_amount', 'NPD Petty Cash', 'money'), C('remaining_profit', 'Remaining Organizer Profit', 'money')];
       names.forEach((n, i) => { cols.push(C('o' + i + 'p', n + ' %', 'pct'), C('o' + i + 'a', n + ' Amount', 'money')); });
       cols = cols.concat([C('allocation_date', 'Allocation Date', 'date'), C('status', 'Status'), C('created_by', 'Created By'), C('notes', 'Notes')]);
-      const keys = S(['eligible_profit', 'saving_amount', 'petty_amount', 'remaining_profit'].concat(names.map((n, i) => 'o' + i + 'a')));
+      const keys = S(['eligible_profit', 'petty_amount', 'remaining_profit'].concat(names.map((n, i) => 'o' + i + 'a')));
       return { columns: cols, rows, totals: totals(cols, rows.filter(r => r.status !== 'Pending'), keys) };
     },
     members(x) { const r = memberRows(x).sort(by2(v => v.joined, v => v.spend)); return { columns: MEMC, rows: r, totals: totals(MEMC, r, S(['joined', 'paid', 'attended', 'spend'])) }; },

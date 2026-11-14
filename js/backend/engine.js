@@ -74,7 +74,7 @@
     if (!list.length) return [];
     const ids = new Set(list.map(s => s.id)), partsBy = {}, expBy = {}, payBy = {};
     T.all('session_participants').forEach(p => { if (ids.has(p.session_id)) (partsBy[p.session_id] = partsBy[p.session_id] || []).push(p); });
-    T.all('expenses').forEach(e => { if (e.session_id && ids.has(e.session_id) && e.category !== PHOTO_CAT) expBy[e.session_id] = (expBy[e.session_id] || 0) + e.amount; });
+    T.all('expenses').forEach(e => { if (e.session_id && ids.has(e.session_id) && e.category !== PHOTO_CAT && e.auto !== 'venue') expBy[e.session_id] = (expBy[e.session_id] || 0) + e.amount; });
     T.all('photographer_payments').forEach(e => { if (e.session_id && ids.has(e.session_id) && e.status === 'Paid') payBy[e.session_id] = (payBy[e.session_id] || 0) + e.amount; });
     return list.map(s => {
       const parts = partsBy[s.id] || [], f = sessionFinancials(s, parts, expBy[s.id] || 0, payBy[s.id] || 0);
@@ -119,10 +119,10 @@
   }
 
   // ----------------------------------------------------------------- funds & ledger
-  const NPD_FUNDS = ['operational_saving', 'petty_cash'];
+  const NPD_FUNDS = ['petty_cash'];
   const fundsMap = () => { const m = new Map(); sortBy(T.all('funds'), 'sort').forEach(f => m.set(f.id, f)); return m; };
   function defaultVenueFundId() {
-    const code = T.setting('default_venue_fund', 'operational_saving');
+    const code = T.setting('default_venue_fund', 'petty_cash');
     const f = T.find('funds', x => x.code === code) || sortBy(T.all('funds'), 'sort')[0]; return f ? f.id : null;
   }
 
@@ -141,12 +141,9 @@
     }
     for (const r of T.all('revenue_records')) add(r.txn_date, 'in', 'Revenue', r.category, r.amount, r.description, 'rv' + r.id, null, r.code, null, null,
       { payment_method: r.payment_method, notes: r.notes, created_by: r.created_by, created_at: r.created_at, entity: 'revenue', entity_id: r.id });
-    const dv = defaultVenueFundId();
-    for (const r of T.all('sessions')) if (r.status !== 'Draft' && r.venue_cost > 0 && r.event_date <= t)
-      add(r.event_date, 'out', 'Operational Expense', 'Venue Rental', r.venue_cost, `Venue – ${r.name}`, 'vc' + r.id, r.id, null, r.venue_fund_id || dv);
     for (const r of T.all('expenses')) if (r.category !== PHOTO_CAT)
       add(r.txn_date, 'out', 'Operational Expense', r.category, r.amount, r.description, 'ex' + r.id, r.session_id, r.code, r.source_fund_id,
-        null, { payment_method: r.payment_method, receipt: r.receipt, notes: r.notes, created_by: r.created_by, created_at: r.created_at, entity: 'expense', entity_id: r.id });
+        null, { payment_method: r.payment_method, receipt: r.receipt, notes: r.notes, created_by: r.created_by, created_at: r.created_at, entity: 'expense', entity_id: r.id, auto: r.auto || null });
     for (const r of T.all('photographer_payments')) {
       if (r.status !== 'Paid') continue; const ph = T.get('photographers', r.photographer_id); if (!ph) continue;
       add(r.paid_date || (r.created_at || '').slice(0, 10), 'out', 'Photographer Payment', PHOTO_CAT, r.amount, `Settlement – photographer ${ph.name}`, 'pp' + r.id, r.session_id, r.code, r.fund_id,
@@ -156,11 +153,11 @@
       if (!l.paid || !(l.amount > 0)) continue; const ps = T.get('profit_sharing', l.profit_sharing_id); if (!ps) continue;
       add(l.paid_date || t, 'out', 'Organizer Distribution', 'Organizer Distribution', l.amount, `${l.organizer_name} – ${ps.label}`, 'ol' + l.id);
     }
-    const saving = T.find('funds', f => f.code === NPD_FUNDS[0]), petty = T.find('funds', f => f.code === NPD_FUNDS[1]);
+    const petty = T.find('funds', f => f.code === NPD_FUNDS[0]);
     for (const r of T.all('profit_sharing')) {
       if (r.status !== 'Calculated' && r.status !== 'Paid') continue; const d = r.allocation_date || r.period_end;
-      if (r.saving_amount > 0 && saving) add(d, 'internal', 'Profit Allocation', 'Operational Saving Allocation', r.saving_amount, `Operational Saving – ${r.label}`, 'as' + r.id, null, r.code, null, saving.id);
-      if (r.petty_amount > 0 && petty) add(d, 'internal', 'Profit Allocation', 'Petty Cash Allocation', r.petty_amount, `Petty Cash – ${r.label}`, 'ap' + r.id, null, r.code, null, petty.id);
+      const amt = (r.saving_amount || 0) + (r.petty_amount || 0);
+      if (amt > 0 && petty) add(d, 'internal', 'Profit Allocation', 'NPD Petty Cash Allocation', amt, `NPD Petty Cash – ${r.label}`, 'ap' + r.id, null, r.code, null, petty.id);
     }
     for (const r of T.all('fund_transactions')) {
       const base = { notes: r.notes, created_by: r.created_by, created_at: r.created_at, entity: 'fund_transaction', entity_id: r.id };
@@ -255,31 +252,32 @@
     };
   }
   const totalCashBalance = upto => cashflow('2000-01-01', upto || today()).closing;
+  function netCash(upto) {
+    upto = upto || today(); const cash = totalCashBalance(upto), l = liabilities(upto);
+    return { cash, photographer: l.photographer_payable, organizer_profit: l.organizer_payable, organizer_debt: l.personal_payable, net: cash - l.photographer_payable - l.organizer_payable - l.personal_payable };
+  }
 
   // ----------------------------------------------------------------- profit sharing
-  function allocate(eligibleProfit, savingPct, pettyPct, organizers) {
+  function allocate(eligibleProfit, pettyPct, organizers) {
     if (!organizers.length) throw new ValueErr('No active organizers configured.');
     const pctSum = Math.round(sum(organizers, o => num(o.share_pct)) * 1e6) / 1e6;
     if (pctSum !== 100) throw new ValueErr(`Active organizer percentages must total 100% (currently ${pctSum}%).`);
-    savingPct = num(savingPct); pettyPct = num(pettyPct);
-    [['Operational Saving', savingPct], ['Petty Cash', pettyPct]].forEach(([l, p]) => { if (!(p >= 0 && p <= 100)) throw new ValueErr(`${l} percentage must be between 0 and 100.`); });
-    if (savingPct + pettyPct > 100) throw new ValueErr('Operational Saving + Petty Cash cannot exceed 100% of the distributable profit.');
+    pettyPct = num(pettyPct);
+    if (!(pettyPct >= 0 && pettyPct <= 100)) throw new ValueErr('NPD Petty Cash percentage must be between 0 and 100.');
     const eligible = Math.max(0, eligibleProfit);
-    const saving = rnd(eligible * savingPct / 100); let petty = rnd(eligible * pettyPct / 100);
-    let remaining = eligible - saving - petty;
-    if (remaining < 0) { petty += remaining; remaining = 0; }
+    const petty = rnd(eligible * pettyPct / 100);
+    const remaining = eligible - petty;
     const lines = organizers.map(o => ({ organizer_id: o.id, organizer_name: o.name, pct: o.share_pct, amount: rnd(remaining * num(o.share_pct) / 100) }));
     const diff = remaining - sum(lines, l => l.amount);
     if (lines.length && diff) lines.reduce((a, b) => (b.pct > a.pct ? b : a)).amount += diff;
-    return [saving, petty, remaining, lines];
+    return [petty, remaining, lines];
   }
 
-  function profitSharingPreview(start, end, savingPct, pettyPct) {
-    if (savingPct == null) savingPct = Number(T.setting('default_saving_pct', '10'));
-    if (pettyPct == null) pettyPct = Number(T.setting('default_petty_pct', '5'));
+  function profitSharingPreview(start, end, pettyPct) {
+    if (pettyPct == null) pettyPct = Number(T.setting('default_petty_pct', '15'));
     const ps = periodSummary(start, end), orgs = sortBy(T.all('organizers').filter(o => o.active), 'id');
-    const [saving, petty, remaining, lines] = allocate(ps.net_profit, savingPct, pettyPct, orgs);
-    return { start, end, net_profit: ps.net_profit, eligible_profit: Math.max(0, ps.net_profit), saving_pct: savingPct, saving_amount: saving, petty_pct: pettyPct, petty_amount: petty,
+    const [petty, remaining, lines] = allocate(ps.net_profit, pettyPct, orgs);
+    return { start, end, net_profit: ps.net_profit, eligible_profit: Math.max(0, ps.net_profit), saving_pct: 0, saving_amount: 0, petty_pct: pettyPct, petty_amount: petty,
       remaining_profit: remaining, lines, organizer_revenue: ps.organizer_revenue, total_expenses: ps.total_expenses,
       warning: ps.net_profit <= 0 ? 'Net profit is zero or negative: nothing is allocated or distributed.' : null };
   }
@@ -288,19 +286,19 @@
     T.filter('profit_sharing_lines', l => l.profit_sharing_id === pid).forEach(l => T.remove('profit_sharing_lines', l.id));
     pv.lines.forEach(l => T.insert('profit_sharing_lines', { profit_sharing_id: pid, organizer_id: l.organizer_id, organizer_name: l.organizer_name, pct: l.pct, amount: l.amount, paid: 0, paid_date: null }));
   }
-  function createProfitSharing(start, end, savingPct, pettyPct, label, notes, isDemo = 0, createdBy = null) {
+  function createProfitSharing(start, end, pettyPct, label, notes, isDemo = 0, createdBy = null) {
     if (start > end) throw new ValueErr('Period start must be before the end.');
     const clash = overlap(start, end);
     if (clash) throw new ValueErr(`Period overlaps existing record ${clash.label} – the same profit cannot be allocated twice.`);
-    const pv = profitSharingPreview(start, end, savingPct, pettyPct), code = T.nextCode('profit_sharing', 'code', 'ALC-', 4);
+    const pv = profitSharingPreview(start, end, pettyPct), code = T.nextCode('profit_sharing', 'code', 'ALC-', 4);
     const rec = T.insert('profit_sharing', { code, label: label || `${start} to ${end}`, period_start: start, period_end: end, eligible_profit: pv.eligible_profit, saving_pct: pv.saving_pct, saving_amount: pv.saving_amount,
       petty_pct: pv.petty_pct, petty_amount: pv.petty_amount, remaining_profit: pv.remaining_profit, status: 'Pending', allocation_date: null, paid_date: null, notes: notes || null, created_by: createdBy, is_demo: isDemo });
     saveLines(rec.id, pv); return rec.id;
   }
   function recalcProfitSharing(pid) {
     const r = T.get('profit_sharing', pid); if (!r || r.status !== 'Pending') throw new ValueErr('Only Pending records can be recalculated.');
-    const pv = profitSharingPreview(r.period_start, r.period_end, r.saving_pct, r.petty_pct);
-    T.update('profit_sharing', pid, { eligible_profit: pv.eligible_profit, saving_amount: pv.saving_amount, petty_amount: pv.petty_amount, remaining_profit: pv.remaining_profit });
+    const pv = profitSharingPreview(r.period_start, r.period_end, (r.saving_pct || 0) + (r.petty_pct || 0));
+    T.update('profit_sharing', pid, { eligible_profit: pv.eligible_profit, saving_pct: 0, saving_amount: 0, petty_pct: pv.petty_pct, petty_amount: pv.petty_amount, remaining_profit: pv.remaining_profit });
     saveLines(pid, pv);
   }
   function finalizeProfitSharing(pid, onDate) {
@@ -322,6 +320,6 @@
   }
 
   NPDB.engine = { PAID_STATES, PHOTO_CAT, NPD_FUNDS, participantCalc, sessionFinancials, joinedSessions, computeSessions, periodSummary, monthRange, monthsBetween, monthlySeries,
-    fundsMap, defaultVenueFundId, ledger, effects, fundBalance, fundSummary, cashEvents, liabilities, totalCashBalance, cashflow, allocate, profitSharingPreview, createProfitSharing,
+    fundsMap, defaultVenueFundId, ledger, effects, fundBalance, fundSummary, cashEvents, liabilities, totalCashBalance, netCash, cashflow, allocate, profitSharingPreview, createProfitSharing,
     recalcProfitSharing, finalizeProfitSharing, payOrganizerLine, overlap, ValueErr };
 })(typeof window !== 'undefined' ? window : globalThis);
