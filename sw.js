@@ -1,9 +1,9 @@
 /* NPD service worker – caches the static app shell only (code, styles, icons). Never touches data:
  * business data lives in the device database (IndexedDB) and on api.github.com, which this worker ignores. */
-const BUILD = 'b11141143';
+const BUILD = 'b11160915';
 const CACHE = 'npd-shell-' + BUILD;
 const SHELL = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icons/icon-192.png',
-  ...['util', 'store', 'engine', 'router', 'ops', 'fin', 'reports', 'seed', 'sync'].map(f => 'js/backend/' + f + '.js'),
+  ...['util', 'store', 'engine', 'router', 'ops', 'fin', 'credits', 'reports', 'seed', 'sync'].map(f => 'js/backend/' + f + '.js'),
   ...['core', 'forms', 'pages_ops', 'pages_fin', 'main'].map(f => 'js/app/' + f + '.js')];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => {})))).then(() => undefined)); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('npd-shell-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

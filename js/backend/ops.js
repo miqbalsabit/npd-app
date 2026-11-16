@@ -158,7 +158,8 @@
   }
   add('GET', '/members', 'view', ({ q }) => {
     const st = memberStats(), qq = (q.q || '').trim(), act_ = q.active === undefined ? '1' : q.active;
-    let rows = T.all('members').map(m => { const a = st.get(m.id); return Object.assign({}, m, { joined: a ? a.joined : 0, sports: a ? a.sportSet.size : 0, spend: a ? a.spend : 0, last_date: a ? a.last_date : null, first_date: a ? a.first_date : null }); });
+    const cb = E.creditBalances();
+    let rows = T.all('members').map(m => { const a = st.get(m.id); return Object.assign({}, m, { credit: Math.max(0, cb.get(m.id) || 0), joined: a ? a.joined : 0, sports: a ? a.sportSet.size : 0, spend: a ? a.spend : 0, last_date: a ? a.last_date : null, first_date: a ? a.first_date : null }); });
     if (qq) rows = rows.filter(m => memberMatch(m, qq));
     if (act_ === '0' || act_ === '1') rows = rows.filter(m => String(m.active) === act_);
     if (q.activity === 'inactive30') { const lim = NPDB.addDays(today(), -30); rows = rows.filter(m => !m.last_date || m.last_date < lim); }
@@ -170,7 +171,8 @@
   add('GET', '/members/search', 'view', ({ q }) => {
     const qq = (q.q || '').trim(); if (qq.length < 1) return ok({ members: [] });
     const rows = sortBy(T.all('members').filter(m => m.active && memberMatch(m, qq)), m => (m.nickname || '').toLowerCase()).slice(0, 12);
-    return ok({ members: rows.map(m => pick(m, ['id', 'member_code', 'nickname', 'whatsapp'])) });
+    const cb = E.creditBalances();
+    return ok({ members: rows.map(m => Object.assign(pick(m, ['id', 'member_code', 'nickname', 'whatsapp']), { credit: Math.max(0, cb.get(m.id) || 0) })) });
   });
   add('POST', '/members', 'operations', ({ body: d }) => { const [id, code] = createMember(d, !!d.force); return ok({ id, member_code: code }); });
   add('PUT', '/members/<int:mid>', 'operations', ({ body: d }, mid) => {
@@ -277,7 +279,7 @@
     const ven = T.get('venues', v.venue_id); if (!ven) throw new ApiError('Venue not found.');
     let cost = i(d, 'venue_cost', false, 0, 1e11, null, 'Venue rental cost');
     if (cost === null) cost = ven.pricing_type === 'per session' ? ven.rental_price : Math.round(ven.rental_price * hoursBetween(v.start_time, v.end_time));
-    v.venue_cost = cost;
+    v.venue_cost = cost; v.admin_fee = i(d, 'admin_fee', false, 0, 1e11, 0, 'Biaya admin') || 0;
     const vf = i(d, 'venue_fund_id', false, 1) || ex.venue_fund_id || E.defaultVenueFundId();
     if (!T.get('funds', vf)) throw new ApiError('Fund for the venue rental not found.');
     v.venue_fund_id = vf;
@@ -295,7 +297,17 @@
   /** Venue rental is a real expense row (id = session id, so every device derives the very same record). */
   const venueDate = (s, ex) => { const t = today(); if (ex) return ex.txn_date <= s.event_date ? ex.txn_date : s.event_date; return s.event_date < t ? s.event_date : t; };
   /** One-time merge: Operational Saving + Petty Cash -> "NPD Petty Cash". Idempotent and safe to run on every device. */
+  function migrateBank() {
+    if (!T.all('funds').length) return;   // empty store: seedBase has not run yet
+    let bank = T.find('funds', f => f.code === 'bank_account');
+    if (!bank) bank = T.insert('funds', { id: 405, code: 'bank_account', name: 'Saldo Rekening', kind: 'npd', owner: null, opening_balance: 0, sort: 1 });
+    if (T.setting('bank_migrated', '0') === '1') return;
+    const petty = T.find('funds', f => f.code === 'petty_cash');
+    if (petty) T.all('sessions').filter(x => x.venue_fund_id === petty.id).forEach(x => T.update('sessions', x.id, { venue_fund_id: bank.id }));
+    T.setSetting('default_venue_fund', 'bank_account'); T.setSetting('bank_migrated', '1');
+  }
   function migrateFunds() {
+    migrateBank();
     const old = T.find('funds', f => f.code === 'operational_saving'), keep = T.find('funds', f => f.code === 'petty_cash');
     if (!keep) return;
     if (old) {
@@ -319,10 +331,11 @@
     let n = 0; const ss = new Map(T.all('sessions').map(x => [x.id, x]));
     for (const s of ss.values()) {
       const ex = T.get('expenses', s.id), ok_ = ex && ex.auto === 'venue';
-      if (!(s.venue_cost > 0)) { if (ok_) { T.remove('expenses', ex.id); n++; } continue; }
+      const tot = (s.venue_cost || 0) + (s.admin_fee || 0);
+      if (!(tot > 0)) { if (ok_) { T.remove('expenses', ex.id); n++; } continue; }
       if (ex && !ok_) continue;
       const fund = s.venue_fund_id && T.get('funds', s.venue_fund_id) ? s.venue_fund_id : E.defaultVenueFundId();
-      const want = { txn_date: venueDate(s, ex), category: 'Venue Rental', description: `Venue – ${s.name}`, amount: s.venue_cost, session_id: s.id, source_fund_id: fund, auto: 'venue' };
+      const want = { txn_date: venueDate(s, ex), category: 'Venue Rental', description: `Venue – ${s.name}`, amount: tot, notes: s.admin_fee > 0 ? `Sewa ${s.venue_cost} + biaya admin ${s.admin_fee} (otomatis dari sesi)` : 'Dibuat otomatis dari biaya venue sesi', session_id: s.id, source_fund_id: fund, auto: 'venue' };
       if (!ex) { T.insert('expenses', Object.assign({ id: s.id, code: T.nextCode('expenses', 'code', 'EXP-', 6), payment_method: 'Cash', receipt: null, notes: 'Dibuat otomatis dari biaya venue sesi', created_by: 'system', is_demo: s.is_demo ? 1 : 0 }, want)); n++; }
       else if (Object.keys(want).some(k => ex[k] !== want[k])) { T.update('expenses', ex.id, want); n++; }
     }
@@ -330,10 +343,10 @@
     return n;
   }
   function checkVenueFund(v, d, old) {
-    if (!(v.venue_cost > 0)) return;
-    if (old && old.venue_cost === v.venue_cost && old.venue_fund_id === v.venue_fund_id) return;
+    const tot = (v.venue_cost || 0) + (v.admin_fee || 0); if (!(tot > 0)) return;
+    if (old && old.venue_cost === v.venue_cost && (old.admin_fee || 0) === (v.admin_fee || 0) && old.venue_fund_id === v.venue_fund_id) return;
     const fund = T.get('funds', v.venue_fund_id), ex = old ? T.get('expenses', old.id) : null;
-    NPDB.fin.checkOverdraw(fund, v.venue_cost, venueDate(v, ex), old ? 'ex' + old.id : null, d.force_fund);
+    NPDB.fin.checkOverdraw(fund, tot, venueDate(v, ex), old ? 'ex' + old.id : null, d.force_fund);
   }
   function syncFull(sid) {
     const r = T.get('sessions', sid); if (!r || !['Open Registration', 'Full'].includes(r.status) || !r.max_participants) return;
@@ -351,14 +364,13 @@
   add('PUT', '/sessions/<int:sid>', 'operations', ({ body: d0 }, sid) => {
     const old = T.get('sessions', sid); if (!old) throw new ApiError('Session not found.', 404);
     const d = Object.assign({}, d0);
-    if (!has('finance')) ['venue_cost', 'session_fee', 'budget_extra', 'photo_mode', 'photographer_id', 'photo_fee', 'npd_share_pct', 'venue_fund_id'].forEach(k => { d[k] = old[k]; });
+    if (!has('finance')) ['venue_cost', 'admin_fee', 'session_fee', 'budget_extra', 'photo_mode', 'photographer_id', 'photo_fee', 'npd_share_pct', 'venue_fund_id'].forEach(k => { d[k] = old[k]; });
     const v = sessionVals(Object.assign({}, d, { venue_cost: d.venue_cost !== null && d.venue_cost !== undefined && d.venue_cost !== '' ? d.venue_cost : old.venue_cost }), old);
     const cf = findConflicts(v.venue_id, v.event_date, v.start_time, v.end_time, sid);
     if (cf.length && !d.force && v.status !== 'Cancelled') throw new ApiError('This venue already has a session during those hours.', 409, { code: 'venue_conflict', conflicts: cf });
     checkVenueFund(v, d, old);
     const oldV = pick(old, Object.keys(v)); T.update('sessions', sid, v); syncFull(sid); ensureVenueExpenses(); log('update', 'session', sid, { old: oldV, new: v }); return ok();
   });
-  add('POST', '/sessions/<int:sid>/cancel', 'operations', ({ body }, sid) => { const reason = s(body, 'reason', false, 300); T.update('sessions', sid, { status: 'Cancelled', cancel_reason: reason }); log('cancel', 'session', sid, { reason }); return ok(); });
   add('POST', '/sessions/<int:sid>/reschedule', 'operations', ({ body: d }, sid) => {
     const old = T.get('sessions', sid); if (!old) throw new ApiError('Session not found.', 404);
     const nd = dt(d, 'event_date', true), st = tm(d, 'start_time', true), et = tm(d, 'end_time', true);
@@ -417,7 +429,9 @@
       if (status === 'Cancelled' && wasPaid && (ex.amount_paid || 0) > 0) throw new ApiError('This participant already paid. Use Refunded or Partially Refunded so the money is tracked.');
       amount = 0; refund = 0; pdate = null; rdate = null;
     }
-    return { payment_status: status, amount_paid: amount, refund_amount: refund, paid_date: pdate, refund_date: rdate, photo_selected: photo,
+    let dep = 'deposit_fund_id' in d ? (d.deposit_fund_id ? Number(d.deposit_fund_id) : null) : (ex.deposit_fund_id || null);
+    if (dep) { const fd = T.get('funds', dep); if (!fd || fd.kind !== 'npd') throw new ApiError('Pilih kantong NPD untuk tempat uang masuk.'); if (fd.code === 'bank_account') dep = null; }
+    return { deposit_fund_id: dep, payment_status: status, amount_paid: amount, refund_amount: refund, paid_date: pdate, refund_date: rdate, photo_selected: photo,
       attendance: oneOf(d, 'attendance', ATTENDANCE, ex.attendance || 'Not Yet Confirmed', 'Attendance'), notes: 'notes' in d ? s(d, 'notes', false, 300) : (ex.notes || null) };
   }
   add('POST', '/sessions/<int:sid>/participants', 'operations', ({ body: d }, sid) => {
@@ -428,17 +442,19 @@
     const m = T.get('members', mid); if (!m || !m.active) throw new ApiError('Member not found or inactive.');
     if (T.find('session_participants', p => p.session_id === sid && p.member_id === mid)) throw new ApiError('This member is already registered in this session.', 409);
     if (sess.max_participants) { const n = T.all('session_participants').filter(p => p.session_id === sid && p.payment_status !== 'Cancelled').length; if (n >= sess.max_participants && !d.force_capacity) throw new ApiError(`Session is full (${n}/${sess.max_participants}).`, 409, { code: 'session_full' }); }
-    const f = paymentFields(sess, d), r = T.insert('session_participants', Object.assign({ session_id: sid, member_id: mid, registered_at: today() }, f));
-    syncFull(sid); log('register', 'participant', r.id, Object.assign({ session: sid, member: m.member_code }, f)); return ok({ id: r.id, member_id: mid, new_member_code: newMember });
+    const f = paymentFields(sess, d), U = NPDB.credits.checkUse(mid, d, f, null);
+    f.credit_used = U; const r = T.insert('session_participants', Object.assign({ session_id: sid, member_id: mid, registered_at: today() }, f));
+    NPDB.credits.recordUse(r, sess, U); syncFull(sid); log('register', 'participant', r.id, Object.assign({ session: sid, member: m.member_code }, f)); return ok({ id: r.id, member_id: mid, new_member_code: newMember });
   }, true);
   add('PUT', '/participants/<int:pid>', 'operations', ({ body: d }, pid) => {
     const ex = T.get('session_participants', pid); if (!ex) throw new ApiError('Registration not found.', 404);
-    const sess = T.get('sessions', ex.session_id), f = paymentFields(sess, d, ex), oldV = pick(ex, Object.keys(f));
-    T.update('session_participants', pid, f); syncFull(ex.session_id); log('update', 'participant', pid, { old: oldV, new: f }); return ok();
+    const sess = T.get('sessions', ex.session_id); NPDB.credits.guardEdit(ex, d);
+    const f = paymentFields(sess, d, ex), oldV = pick(ex, Object.keys(f)), U = NPDB.credits.checkUse(ex.member_id, d, f, ex);
+    f.credit_used = U; T.update('session_participants', pid, f); NPDB.credits.recordUse(Object.assign({}, ex, f, { id: pid }), sess, U); syncFull(ex.session_id); log('update', 'participant', pid, { old: oldV, new: f }); return ok();
   });
   add('DELETE', '/participants/<int:pid>', 'operations', (c, pid) => {
     const ex = T.get('session_participants', pid); if (!ex) throw new ApiError('Registration not found.', 404);
-    if (ex.amount_paid > 0) throw new ApiError('This registration has payment records. Mark it Refunded instead of deleting so cash history stays accurate.', 409);
+    if (ex.amount_paid > 0 || (T.all('member_credits').some(c => c.participant_id === pid))) throw new ApiError('This registration has payment records. Mark it Refunded instead of deleting so cash history stays accurate.', 409);
     T.remove('session_participants', pid); syncFull(ex.session_id); log('delete', 'participant', pid, ex); return ok();
   });
 

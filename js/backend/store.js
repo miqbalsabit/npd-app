@@ -7,7 +7,7 @@
 
   const COLLECTIONS = ['organizers', 'sports', 'photographers', 'funds', 'venues', 'venue_sports', 'members', 'sessions',
     'session_participants', 'revenue_records', 'expenses', 'photographer_payments', 'fund_transactions', 'profit_sharing',
-    'profit_sharing_lines', 'settings', 'audit_logs'];
+    'profit_sharing_lines', 'member_credits', 'settings', 'audit_logs'];
   const SCHEMA = 2;
 
   const state = { data: {}, dirty: 0, journal: null, user: 'system', listeners: [], meta: { createdAt: new Date().toISOString() } };

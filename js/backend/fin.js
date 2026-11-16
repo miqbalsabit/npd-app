@@ -82,11 +82,12 @@
   function revVals(d) {
     const cat = s(d, 'category', false, 60) || 'Other Revenue';
     if (AUTO_REVENUE_CATS.includes(cat.toLowerCase())) throw new ApiError(`'${cat}' is generated automatically from sessions. Recording it manually would double count – use Other Revenue.`);
-    return { txn_date: dt(d, 'txn_date', true, 'Date'), category: cat, description: s(d, 'description', true, 200, 'Description'), amount: i(d, 'amount', true, 1, 1e11, null, 'Amount'), payment_method: oneOf(d, 'payment_method', METHODS, 'Cash'), notes: s(d, 'notes', false, 500) };
+    return { txn_date: dt(d, 'txn_date', true, 'Date'), category: cat, description: s(d, 'description', true, 200, 'Description'), amount: i(d, 'amount', true, 1, 1e11, null, 'Amount'), payment_method: oneOf(d, 'payment_method', METHODS, 'Cash'), notes: s(d, 'notes', false, 500), fund_id: depFund(d.fund_id) };
   }
+  function depFund(v) { const id = v ? Number(v) : null; if (!id) return null; const f = T.get('funds', id); if (!f || f.kind !== 'npd') throw new ApiError('Pilih kantong NPD untuk tempat uang masuk.'); return f.code === 'bank_account' ? null : id; }
   add('POST', '/revenue', 'finance', ({ body: d }) => { const v = revVals(d), code = T.nextCode('revenue_records', 'code', 'REV-', 6); const r = T.insert('revenue_records', Object.assign({ code, created_by: uname(), is_demo: 0 }, v)); log('create', 'revenue', r.id, Object.assign({ code }, v)); return ok({ id: r.id, code }); }, true);
-  add('PUT', '/revenue/<int:rid>', 'finance', ({ body: d }, rid) => { const v = revVals(d), old = T.get('revenue_records', rid); if (!old) throw new ApiError('Record not found.', 404); const oc = Object.assign({}, old); T.update('revenue_records', rid, v); log('update', 'revenue', rid, { old: oc, new: v }); return ok(); });
-  add('DELETE', '/revenue/<int:rid>', 'finance', (c, rid) => { const old = T.get('revenue_records', rid); if (!old) throw new ApiError('Record not found.', 404); T.remove('revenue_records', rid); log('delete', 'revenue', rid, old); return ok(); });
+  add('PUT', '/revenue/<int:rid>', 'finance', ({ body: d }, rid) => { { const x = T.get('revenue_records', rid); if (x && x.noncash) throw new ApiError('Pendapatan dari saldo hangus tidak bisa diubah.', 409); } const v = revVals(d), old = T.get('revenue_records', rid); if (!old) throw new ApiError('Record not found.', 404); const oc = Object.assign({}, old); T.update('revenue_records', rid, v); log('update', 'revenue', rid, { old: oc, new: v }); return ok(); });
+  add('DELETE', '/revenue/<int:rid>', 'finance', (c, rid) => { { const x = T.get('revenue_records', rid); if (x && x.noncash) throw new ApiError('Pendapatan dari saldo hangus tidak bisa dihapus.', 409); } const old = T.get('revenue_records', rid); if (!old) throw new ApiError('Record not found.', 404); T.remove('revenue_records', rid); log('delete', 'revenue', rid, old); return ok(); });
 
   // =============================================================== transactions & cash flow
   add('GET', '/transactions', 'finance', ({ q }) => {

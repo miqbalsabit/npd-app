@@ -8,7 +8,7 @@ const NAV = [
   { id: 'venues', label: 'Venues', href: '#/venues', icon: 'pin' },
   { id: 'members', label: 'Members', href: '#/members', icon: 'users', sub: [['Member List', '#/members'], ['Member Activity', '#/activity']] },
   { id: 'fin', label: 'Financial Management', href: '#/finance', icon: 'wallet', perm: 'finance', sub: [['Financial Overview', '#/finance'], ['Transactions', '#/transactions'], ['Revenue', '#/revenue'], ['Operational Expenses', '#/expenses'], ['Cash Flow', '#/cashflow']] },
-  { id: 'profit', label: 'Profit Sharing', href: '#/profit/photographers', icon: 'coin', perm: 'finance', sub: [['Photography Allocation', '#/profit/photographers'], ['NPD Petty Cash & Utang', '#/profit/funds'], ['Organizer Profit Sharing', '#/profit/organizers']] },
+  { id: 'profit', label: 'Profit Sharing', href: '#/profit/photographers', icon: 'coin', perm: 'finance', sub: [['Photography Allocation', '#/profit/photographers'], ['Rekening, Petty Cash & Utang', '#/profit/funds'], ['Organizer Profit Sharing', '#/profit/organizers']] },
   { id: 'reports', label: 'Reports', href: '#/reports', icon: 'pie' },
   { id: 'settings', label: 'Settings', href: '#/settings', icon: 'gear' },
 ];
@@ -28,7 +28,7 @@ function loadLogo() {
     img.onerror = () => tryLoad(srcs.slice(1));
     img.src = srcs[0];
   };
-  tryLoad(['img/brand/logo.svg', 'img/brand/logo.png']);
+  tryLoad(['img/brand/logo.png']);
 }
 
 // ------------------------------------------------------------------ device profile (replaces login)
@@ -74,7 +74,7 @@ function renderShell() {
     const m = openModal({
       title: 'More', body: html`${sec('Manage', [['Venues', '#/venues', 'pin'], ['Member Activity', '#/activity', 'users']])}
       ${can('finance') ? sec('Financial', [['Overview', '#/finance', 'wallet'], ['Transactions', '#/transactions', 'receipt'], ['Revenue', '#/revenue', 'trend'], ['Operational Expenses', '#/expenses', 'receipt'], ['Cash Flow', '#/cashflow', 'coin']]) : ''}
-      ${can('finance') ? sec('Profit Sharing', [['Photography Allocation', '#/profit/photographers', 'camera'], ['NPD Petty Cash & Utang', '#/profit/funds', 'shield'], ['Organizer Profit Sharing', '#/profit/organizers', 'coin']]) : ''}
+      ${can('finance') ? sec('Profit Sharing', [['Photography Allocation', '#/profit/photographers', 'camera'], ['Rekening, Petty Cash & Utang', '#/profit/funds', 'shield'], ['Organizer Profit Sharing', '#/profit/organizers', 'coin']]) : ''}
       ${sec('App', [['Reports', '#/reports', 'pie'], ['Settings', '#/settings', 'gear'], ['Install App', '#/install', 'download']])}
       <div class="sheet-sec">Account</div><button class="sheet-link" id="m-out" style="border:0;background:none;width:100%;text-align:left;font:inherit;font-weight:600;cursor:pointer">${icon('logout', 20)} Ganti pengguna (${NPD.user.display_name})</button>`,
     });

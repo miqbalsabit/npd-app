@@ -67,7 +67,7 @@ route('#/dashboard', () => guard(async () => {
   on(v, 'click', '[data-export]', () => openExportModal(dashState));
   on(v, 'click', '[data-netcash]', async () => {
     const n = (await GET('/api/dashboard', { start: dashState.start, end: dashState.end })).kpis.net_cash, r = (l, val, cls = '') => html`<div class="row-sum"><span>${l}</span><b class="${cls}">${val}</b></div>`;
-    openModal({ title: 'Sisa Bersih NPD', size: 'sm', body: html`${r('Total Cash Balance (uang tunai sekarang)', rp(n.cash))}${r('− Utang ke fotografer', rp(n.photographer), 'neg')}${r('− Bagi hasil organizer belum dibayar', rp(n.organizer_profit), 'neg')}${r('− Utang ke organizer (talangan)', rp(n.organizer_debt), 'neg')}<div class="row-sum total"><span>Sisa bersih NPD</span><b>${rp(n.net)}</b></div><div class="muted small" style="margin-top:8px">Ini uang yang benar-benar milik NPD setelah semua kewajiban dibayar.</div>` });
+    openModal({ title: 'Sisa Bersih NPD', size: 'sm', body: html`${r('Total Cash Balance (uang tunai sekarang)', rp(n.cash))}${r('− Utang ke fotografer', rp(n.photographer), 'neg')}${r('− Bagi hasil organizer belum dibayar', rp(n.organizer_profit), 'neg')}${r('− Utang ke organizer (talangan)', rp(n.organizer_debt), 'neg')}${r('− Saldo member (belum terpakai)', rp(n.member_credit), 'neg')}<div class="row-sum total"><span>Sisa bersih NPD</span><b>${rp(n.net)}</b></div><div class="muted small" style="margin-top:8px">Ini uang yang benar-benar milik NPD setelah semua kewajiban dibayar.</div>` });
   });
 }), 'dashboard');
 
@@ -133,6 +133,7 @@ async function sessionForm(id) {
     { name: 'reg_open', label: 'Registration opens', type: 'date' }, { name: 'reg_close', label: 'Registration closes', type: 'date' },
     ...(fin ? [
       { section: 'Financial information' },
+      { name: 'admin_fee', label: 'Biaya admin sewa lapangan (Rp)', type: 'money', hint: 'Opsional. Isi nominalnya sendiri. Dijumlahkan ke biaya venue.' },
       { name: 'venue_cost', label: 'Venue rental cost (Rp)', type: 'money', hint: 'Auto-filled from the venue price and duration. Saved with the session, so later venue price changes never alter this record.' },
       { name: 'venue_fund_id', label: 'Venue rental paid from (Source of Fund)', type: 'select', options: M().funds.map(f => ({ v: f.id, l: f.name })) },
       { name: 'session_fee', label: 'Session fee per participant (Rp)', type: 'money' },
@@ -214,7 +215,7 @@ route('#/sessions/(\\d+)', id => guard(async () => {
       <div class="grid g4" style="margin-bottom:14px">
         ${kpi('Registered', `${s.registered}${cap ? ' / ' + cap : ''}`, `${s.paid_count} paid · ${s.attended} attended`, { icon: 'users' })}
         ${fin ? html`${kpi('Business revenue', rp(s.organizer_revenue), `Cash retained ${rp(s.net_collected)}`, { accent: true, icon: 'trend' })}
-        ${kpi('Expenses', rp(s.total_expenses), `Venue ${rp(s.venue_cost)} + other ${rp(s.other_expenses)}`, { icon: 'receipt' })}
+        ${kpi('Expenses', rp(s.total_expenses), `Sewa ${rp(s.venue_cost)}${s.admin_fee ? ' + admin ' + rp(s.admin_fee) : ''} + lain ${rp(s.other_expenses)}`, { icon: 'receipt' })}
         ${kpi('Net session profit', rp(s.net_profit), s.receivable ? `Receivable ${rp(s.receivable)} not counted` : 'Actual', { icon: 'coin', cls: profitCls(s.net_profit) })}` : ''}
       </div>
       ${fin ? html`<div class="grid g2" style="margin-bottom:14px">
@@ -225,7 +226,7 @@ route('#/sessions/(\\d+)', id => guard(async () => {
           <div class="row-sum sub"><span>Photographer share (${pctf(s.photographer_share_pct)}) – payable</span><span>${rp(s.photographer_share)}</span></div>
           <div class="row-sum sub"><span>NPD photography share (${pctf(s.npd_share_pct)})</span><span>${rp(s.npd_photo_share)}</span></div>` : ''}
           <div class="row-sum"><span>Business revenue</span><b>${rp(s.organizer_revenue)}</b></div>
-          <div class="row-sum sub"><span>Venue cost</span><span>-${rp(s.venue_cost)}</span></div>
+          <div class="row-sum sub"><span>Venue cost</span><span>-${rp(s.venue_cost)}</span></div>${s.admin_fee ? html`<div class="row-sum sub"><span>Biaya admin sewa</span><span>-${rp(s.admin_fee)}</span></div>` : ''}
           <div class="row-sum sub"><span>Operational expenses</span><span>-${rp(s.other_expenses)}</span></div>
           <div class="row-sum total"><span>Net session profit</span><b class="${profitCls(s.net_profit)}">${rp(s.net_profit)}</b></div>
           ${s.refunds ? html`<div class="muted xs" style="margin-top:8px">Refunds returned: ${rp(s.refunds)} (not counted as revenue)</div>` : ''}</div>
@@ -239,10 +240,10 @@ route('#/sessions/(\\d+)', id => guard(async () => {
           { label: 'Member', render: p => html`<div class="strong">${p.nickname}</div><div class="muted xs">${p.member_code}</div>` },
           { label: 'WhatsApp', render: p => p.whatsapp ? raw(`<a href="https://wa.me/${esc(p.whatsapp.replace('+', ''))}" target="_blank" rel="noopener">${esc(p.whatsapp)}</a>`) : '—' },
           { label: 'Payment', render: p => ops ? html`<select class="inp sm-sel" data-pay="${p.id}" style="min-height:36px;padding:4px 28px 4px 8px">${ENUM().payment_status.map(x => html`<option ${x === p.payment_status ? raw('selected') : ''}>${x}</option>`)}</select>` : badge(p.payment_status) },
-          ...(fin ? [{ label: 'Amount', num: true, render: p => p.payment_status === 'Waiting for Payment' ? html`<span class="muted">due ${rp(p.due)}</span>` : html`${rp(p.retained)}${p.refund_amount ? html`<div class="xs muted">refund ${rp(p.refund_amount)}</div>` : ''}` }] : []),
+          ...(fin ? [{ label: 'Amount', num: true, render: p => p.payment_status === 'Waiting for Payment' ? html`<span class="muted">due ${rp(p.due)}</span>` : html`${rp(p.retained)}${p.refund_amount ? html`<div class="xs muted">${p.credit_amount ? 'jadi saldo ' + rp(p.credit_amount) + (p.refund_amount > p.credit_amount ? ' · refund ' + rp(p.refund_amount - p.credit_amount) : '') : 'refund ' + rp(p.refund_amount)}</div>` : ''}${p.credit_used ? html`<div class="xs muted">pakai saldo ${rp(p.credit_used)}</div>` : ''}${p.noshow_forfeit ? html`<div class="xs muted">tidak hadir · hangus</div>` : ''}` }] : []),
           ...(s.photo_mode !== 'none' ? [{ label: 'Photo', render: p => s.photo_mode === 'included' ? badge('Included', 'grey') : p.photo_selected ? badge('Add-on', 'green') : '—' }] : []),
           { label: 'Attendance', render: p => ops ? html`<select class="inp" data-att="${p.id}" style="min-height:36px;padding:4px 28px 4px 8px">${ENUM().attendance.map(x => html`<option ${x === p.attendance ? raw('selected') : ''}>${x}</option>`)}</select>` : badge(p.attendance) },
-          ...(ops ? [{ label: '', act: true, render: p => html`<button class="icon-btn sm" data-edit="${p.id}" aria-label="Edit">${icon('edit', 18)}</button><button class="icon-btn sm red" data-del="${p.id}" aria-label="Remove">${icon('trash', 18)}</button>` }] : []),
+          ...(ops ? [{ label: '', act: true, render: p => html`${fin && ['Paid', 'Partially Refunded', 'Refunded'].includes(p.payment_status) ? html`<button class="btn sm" data-credit="${p.id}">Saldo</button>` : ''}<button class="icon-btn sm" data-edit="${p.id}" aria-label="Edit">${icon('edit', 18)}</button><button class="icon-btn sm red" data-del="${p.id}" aria-label="Remove">${icon('trash', 18)}</button>` }] : []),
         ], ps, { empty: emptyState('No participants yet', 'Register members to start collecting payments.', ops ? html`<button class="btn primary sm" id="a-add2">Add participant</button>` : '') })}</div>
       ${fin && r.expenses.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Session expenses</h2><button class="btn sm" id="a-exp">${icon('plus', 16)} Add</button></div>${table([{ label: 'ID', key: 'code' }, { label: 'Date', render: e => fdate(e.txn_date) }, { label: 'Category', key: 'category' }, { label: 'Description', key: 'description' }, { label: 'Amount', num: true, render: e => rp(e.amount) }], r.expenses)}</div>` : (fin ? html`<div style="margin-bottom:14px"><button class="btn sm" id="a-exp">${icon('plus', 16)} Add session expense</button></div>` : '')}
       <div class="card"><div class="card-title"><h2>Details</h2></div><div class="kv">
@@ -257,10 +258,8 @@ route('#/sessions/(\\d+)', id => guard(async () => {
   on(v, 'click', '#a-resched', () => openReschedule(r.session, re));
   on(v, 'click', '#a-add,#a-add2', () => openParticipantForm(r.session, null, re));
   on(v, 'click', '#a-exp', () => openExpenseForm(null, re, id));
-  on(v, 'click', '#a-cancel', async () => {
-    const reason = prompt_('Cancel this session?', 'Reason (optional)'); const rs = await reason; if (rs === null) return;
-    try { await api('POST', `/api/sessions/${id}/cancel`, { reason: rs }); toast('Session cancelled'); re(); } catch (e) { toast(e.message, 'err'); }
-  });
+  on(v, 'click', '#a-cancel', () => openCancelSession(r.session, r.participants, fin, re));
+  on(v, 'click', '[data-credit]', (e, t) => openCreditModal(r.participants.find(p => p.id == t.dataset.credit), r.session, re));
   on(v, 'click', '#a-del', () => runDelete({ what: 'session', url: '/api/sessions/' + id, onDone: () => go('#/sessions'), message: 'Only sessions without payments or expenses can be deleted; otherwise cancel it. This cannot be undone.' }));
   on(v, 'click', '[data-edit]', (e, t) => openParticipantForm(r.session, r.participants.find(p => p.id == t.dataset.edit), re));
   on(v, 'click', '[data-del]', (e, t) => runDelete({ what: 'registration', url: '/api/participants/' + t.dataset.del, onDone: re, message: 'Remove this member from the session? Paid registrations must be refunded instead.' }));
@@ -423,7 +422,7 @@ route('#/members', () => guard(async () => {
     mount($('#mlist', v), html`${table([
       { label: 'Member ID', render: m => html`<b>${m.member_code}</b>${m.active ? '' : html` ${badge('Inactive', 'grey')}`}${demoTag(m)}` },
       { label: 'Nickname', render: m => html`<span class="strong">${m.nickname}</span>` }, { label: 'WhatsApp', render: m => m.whatsapp || '—' },
-      { label: 'Registered', render: m => fdate(m.registered_at) }, { label: 'Sessions', num: true, key: 'joined' },
+      { label: 'Registered', render: m => fdate(m.registered_at) }, { label: 'Sessions', num: true, key: 'joined' }, ...(can('finance') ? [{ label: 'Saldo', num: true, render: m => m.credit > 0 ? html`<b class="pos">${rp(m.credit)}</b>` : '—' }] : []),
       { label: '', act: true, render: m => can('operations') ? html`<button class="icon-btn sm" data-edit="${m.id}" aria-label="Edit">${icon('edit', 18)}</button><button class="icon-btn sm red" data-del="${m.id}" aria-label="Delete">${icon('trash', 18)}</button>` : '' }],
       r.members, { rowAttr: m => `class="click" data-go="#/members/${m.id}"`, empty: emptyState('No members found', 'Add a member or import a CSV/Excel file.', can('operations') ? html`<button class="btn primary sm" id="add2">Add member</button>` : '') })}${pager(r.total, memState.page, 25)}`);
   };
@@ -451,9 +450,10 @@ function importDialog(done) {
 
 route('#/members/(\\d+)', id => guard(async () => {
   const v = view(), fin = can('finance');
-  let cur;
+  let cur, curCr;
   const load = async () => {
     const r = await GET(`/api/members/${id}/profile`), m = r.member; cur = m;
+    const cr = fin ? await GET(`/api/members/${id}/credit`) : { balance: 0, entries: [] }; curCr = cr;
     mount(v, html`<a href="#/members" class="small">${icon('chevL', 14)} Members</a>
       ${pageHead(html`${m.nickname} ${m.active ? '' : badge('Inactive', 'grey')} ${demoTag(m)}`, html`${m.member_code}`, can('operations') ? html`<button class="btn" id="edit">${icon('edit', 16)} Edit</button>` : '')}
       <div class="grid g4" style="margin-bottom:14px">${kpi('Sessions registered', m.registered)}${kpi('Sessions paid', m.paid)}${kpi('Sessions attended', m.attended)}${fin ? kpi('Total spending', rp(m.spend)) : kpi('Favorite sport', m.favorite_sport || '—')}</div>
@@ -463,10 +463,13 @@ route('#/members/(\\d+)', id => guard(async () => {
         <div><span>Registration date</span>${fdate(m.registered_at)}</div><div><span>Favorite sport</span>${m.favorite_sport || '—'}</div>
         <div><span>First session</span>${fdate(m.first_date)}</div><div><span>Last session</span>${fdate(m.last_date)}</div><div style="grid-column:1/-1"><span>Notes</span>${m.notes || '—'}</div></div></div>
         <div class="card"><div class="card-title"><h2>Photography add-on history</h2></div>${r.photography_history.length ? html`<div class="list">${r.photography_history.map(p => html`<div class="list-item"><div class="grow"><div class="t">${p.session}</div><div class="muted xs">${fdate(p.date)}</div></div>${p.price != null ? html`<b>${rp(p.price)}</b>` : ''}</div>`)}</div>` : html`<div class="muted">No photography add-ons yet.</div>`}</div></div>
+      ${fin ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Saldo member</h2><div class="actions">${cr.balance > 0 ? html`<button class="btn sm" id="cr-forfeit">Hanguskan</button><button class="btn sm" id="cr-refund">Refund tunai</button>` : ''}</div></div><div style="font-size:26px;font-weight:700;margin-bottom:8px">${rp(cr.balance)}</div>${cr.entries.length ? html`<div class="list">${cr.entries.map(x => html`<div class="list-item"><div class="grow"><div class="t">${x.reason || x.kind}</div><div class="muted xs">${fdate(x.txn_date)}${x.session_name ? ' · ' + x.session_name : ''}</div></div><b class="${x.signed > 0 ? 'pos' : 'neg'}">${x.signed > 0 ? '+' : '-'}${rp(Math.abs(x.signed))}</b></div>`)}</div>` : html`<div class="muted">Belum ada riwayat saldo.</div>`}</div>` : ''}
       <div class="card"><div class="card-title"><h2>Participation history</h2></div>${table([{ label: 'Date', render: h => fdate(h.event_date) }, { label: 'Session', render: h => html`<a href="#/sessions/${h.session_id}">${h.name}</a>` }, { label: 'Sport', render: h => sportChip(h.sport, h.sport_color) }, { label: 'Payment', render: h => badge(h.payment_status) }, { label: 'Attendance', render: h => badge(h.attendance) }, ...(fin ? [{ label: 'Paid', num: true, render: h => rp(h.amount_paid - (h.payment_status === 'Refunded' && !h.refund_amount ? h.amount_paid : h.refund_amount)) }] : [])], r.history, { empty: emptyState('No sessions yet', 'This member has not joined a session.') })}</div>`);
   };
   await load();
   on(v, 'click', '#edit', () => openMemberForm(cur, load));
+  on(v, 'click', '#cr-forfeit', () => openCreditAmount(id, 'forfeit', curCr.balance, load));
+  on(v, 'click', '#cr-refund', () => openCreditAmount(id, 'refund', curCr.balance, load));
 }), 'members');
 
 // =================================================================== MEMBER ACTIVITY / ROYALTY
@@ -508,4 +511,44 @@ function openExportModal(st) {
     toast('Export started');
     m.close();
   });
+}
+
+
+// =================================================================== SALDO MEMBER (dialogs)
+function openCancelSession(session, parts, fin, onDone) {
+  const paid = parts.filter(p => ['Paid', 'Partially Refunded'].includes(p.payment_status) && (p.retained || 0) > 0).length;
+  const m = openModal({ title: 'Batalkan sesi?', size: 'sm', body: html`
+    <div class="alert info" style="margin-bottom:12px">${icon('info', 18)}<span>${paid ? `${paid} peserta sudah membayar.` : 'Belum ada peserta yang membayar.'} Biaya venue tetap tercatat.</span></div>
+    ${paid && fin ? html`<div class="field"><label>Uang peserta</label><select class="inp" id="cn-mode"><option value="credit">Jadikan saldo member (disarankan)</option><option value="refund">Refund tunai</option></select></div>` : ''}
+    <div class="field"><label>Alasan (opsional)</label><input class="inp" id="cn-reason" maxlength="200"></div>`,
+    footer: html`<button class="btn" data-close>Kembali</button><button class="btn solid-danger" data-ok>Batalkan sesi</button>` });
+  on(m.el, 'click', '[data-ok]', async () => {
+    try { const r = await api('POST', `/api/sessions/${session.id}/cancel`, { mode: ($('#cn-mode', m.el) || {}).value || 'credit', reason: $('#cn-reason', m.el).value }); m.close(); toast(r.participants ? `Sesi dibatalkan, ${r.participants} peserta ${r.mode === 'credit' ? 'dapat saldo' : 'di-refund'}` : 'Sesi dibatalkan'); onDone && onDone(); } catch (e) { toast(e.message, 'err'); }
+  });
+}
+function openCreditModal(p, session, onDone) {
+  const converted = (p.credit_amount || 0) > 0 || p.noshow_forfeit;
+  const photoOk = !p.photo_waived && (session.photo_mode === 'included' || (session.photo_mode === 'excluded' && p.photo_selected));
+  const btn = (k, label, sub, cls = '') => html`<button class="btn ${cls}" style="width:100%;text-align:left;margin-bottom:8px;display:block" data-act="${k}"><b>${label}</b><div class="muted xs">${sub}</div></button>`;
+  const m = openModal({ title: `Saldo · ${p.nickname}`, size: 'sm', body: converted
+    ? html`<div class="alert info" style="margin-bottom:12px">${icon('info', 18)}<span>${p.noshow_forfeit ? 'Pembayaran ini ditandai hangus (tidak hadir).' : `Sudah dijadikan saldo ${rp(p.credit_amount)}.`}</span></div>${btn('undo', 'Batalkan konversi', 'Kembalikan ke pembayaran semula (hanya kalau saldonya belum dipakai)')}`
+    : html`<div class="muted small" style="margin-bottom:10px">Pilih apa yang terjadi pada pembayaran peserta ini.</div>
+      ${btn('noshow-credit', 'Tidak hadir → jadikan saldo', `Seluruh pembayaran ${rp(p.retained)} jadi saldo member, bisa dipotong di sesi lain`, 'primary')}
+      ${photoOk ? btn('photo', 'Foto tidak dipakai → jadikan saldo', 'Nilai foto saja jadi saldo; peserta tetap dihitung hadir') : ''}
+      ${btn('noshow-forfeit', 'Tidak hadir → hangus', 'Uang tetap jadi pendapatan sesi ini')}` });
+  on(m.el, 'click', '[data-act]', async (e, t) => {
+    const a = t.dataset.act;
+    try {
+      if (a === 'undo') await api('POST', `/api/participants/${p.id}/credit/undo`, {});
+      else if (a === 'photo') await api('POST', `/api/participants/${p.id}/credit`, { kind: 'photo' });
+      else await api('POST', `/api/participants/${p.id}/credit`, { kind: 'noshow', action: a === 'noshow-credit' ? 'credit' : 'forfeit' });
+      m.close(); toast('Tersimpan'); onDone && onDone();
+    } catch (er) { toast(er.message, 'err'); }
+  });
+}
+function openCreditAmount(mid, kind, balance, onDone) {
+  const T_ = { forfeit: 'Hanguskan saldo', refund: 'Refund saldo tunai' }[kind];
+  formModal({ title: T_, size: 'sm', fields: [{ name: 'amount', label: 'Jumlah (Rp)', type: 'money', required: true }, { name: 'txn_date', label: 'Tanggal', type: 'date', required: true }, { name: 'reason', label: 'Alasan', full: true, max: 200 }], values: { amount: balance, txn_date: todayISO() },
+    top: html`<div class="alert info" style="margin-bottom:12px">${icon('info', 18)}<span>${kind === 'forfeit' ? 'Saldo yang hangus menjadi pendapatan NPD (non-tunai).' : 'Uang tunai keluar dari NPD Petty Cash dan dicatat di Transactions.'} Saldo tersedia ${rp(balance)}.</span></div>`,
+    onSubmit: async (d, ctx) => { await api('POST', `/api/members/${mid}/credit/${kind}`, d); ctx.modal.close(); toast('Tersimpan'); onDone && onDone(); } });
 }

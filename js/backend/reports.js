@@ -45,7 +45,7 @@
   }
   const SC = [C('session_code', 'Session ID'), C('event_date', 'Date', 'date'), C('name', 'Session'), C('sport', 'Sport'), C('venue', 'Venue'), C('status', 'Status'), C('paid_count', 'Paid', 'int'), C('attended', 'Attended', 'int'),
     C('net_collected', 'Cash Retained', 'money'), C('photographer_share', 'Photographer Share', 'money'), C('npd_photo_share', 'NPD Photo Share', 'money'), C('organizer_revenue', 'Business Revenue', 'money'),
-    C('venue_cost', 'Venue Cost', 'money'), C('other_expenses', 'Other Expenses', 'money'), C('net_profit', 'Net Profit', 'money')];
+    C('venue_total', 'Venue Cost (sewa + admin)', 'money'), C('other_expenses', 'Other Expenses', 'money'), C('net_profit', 'Net Profit', 'money')];
   const sess = x => E.computeSessions(x.start, x.end, x.sport, x.venue, x.sess);
   function group(x, keyname, label) {
     const gm = {};
@@ -96,7 +96,7 @@
 
   const B = {
     overall(x) {
-      const ps = E.periodSummary(x.start, x.end, x.sport, x.venue, x.sess), venueCost = sum(ps.sessions, s => s.venue_cost);
+      const ps = E.periodSummary(x.start, x.end, x.sport, x.venue, x.sess), venueCost = sum(ps.sessions, s => s.venue_total);
       const L = (section, item, amount) => ({ section, item, amount }), pp = Number(T.setting('default_petty_pct', '15'));
       let petty = 0, remaining = 0; try { [petty, remaining] = E.allocate(ps.net_profit, pp, T.all('organizers').filter(o => o.active)); } catch (e) { if (!(e instanceof E.ValueErr)) throw e; }
       return { columns: [C('section', 'Section'), C('item', 'Item'), C('amount', 'Amount', 'money')], totals: {}, rows: [
@@ -169,6 +169,7 @@
       T.all('photographers').forEach(p => { const owed = sum(ss.filter(s => s.photographer_id === p.id), s => s.photographer_share), paid = sum(T.all('photographer_payments').filter(q => q.photographer_id === p.id && q.status === 'Paid' && q.paid_date <= end), q => q.amount); if (owed - paid) r.push({ kind: 'Payable', party: p.name, detail: 'Photographer share not yet paid', amount: owed - paid }); });
       T.all('profit_sharing_lines').forEach(l => { const ps = T.get('profit_sharing', l.profit_sharing_id); if (ps && ['Calculated', 'Paid'].includes(ps.status) && !l.paid && l.amount > 0) r.push({ kind: 'Payable', party: l.organizer_name, detail: `Confirmed profit distribution – ${ps.label}`, amount: l.amount }); });
       E.fundSummary('2000-01-01', end).forEach(f => { if (f.kind === 'personal' && f.closing < 0) r.push({ kind: 'Payable', party: f.owner, detail: 'Business expenses paid personally – awaiting reimbursement', amount: -f.closing }); });
+      E.creditBalances(end).forEach((bal, mid) => { const m = T.get('members', mid); if (bal > 0 && m) r.push({ kind: 'Payable', party: m.nickname, detail: 'Saldo member (belum terpakai)', amount: bal }); });
       const rec = sum(r.filter(v => v.kind === 'Receivable'), v => v.amount), pay = sum(r.filter(v => v.kind === 'Payable'), v => v.amount);
       return { columns: [C('kind', 'Type'), C('party', 'Party / Session'), C('detail', 'Details'), C('amount', 'Amount', 'money')], rows: r, totals: { amount: rec - pay, detail: `Receivables ${rp(rec)} – Payables ${rp(pay)}` } };
     },
