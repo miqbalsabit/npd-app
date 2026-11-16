@@ -411,7 +411,7 @@ function venueForm(x, onDone) {
 const memState = { q: '', active: '1', sort: '', page: 1 };
 route('#/members', () => guard(async () => {
   const v = view(), fin = can('finance');
-  mount(v, html`${pageHead('Member Database', 'Simple member records: Member ID, nickname and WhatsApp.', can('operations') ? html`<button class="btn" id="imp">${icon('upload', 16)} Import</button><button class="btn primary" id="add">${icon('plus', 18)} Add Member</button>` : '')}
+  mount(v, html`${pageHead('Member Database', 'Simple member records: Member ID, nickname and WhatsApp.', can('operations') ? html`<button class="btn" id="imp">${icon('upload', 16)} Import</button><button class="btn" id="lyp">Cetak kartu</button><button class="btn primary" id="add">${icon('plus', 18)} Add Member</button>` : '')}
     <div class="toolbar"><div class="searchbox"><span>${icon('search', 18)}</span><input class="inp" id="q" placeholder="Search Member ID, nickname or WhatsApp" value="${memState.q}" inputmode="search"></div>
       <select class="inp" id="f-active"><option value="1">Active</option><option value="0" ${memState.active === '0' ? raw('selected') : ''}>Inactive</option><option value="all" ${memState.active === 'all' ? raw('selected') : ''}>All</option></select>
       <select class="inp" id="f-sort"><option value="">Sort: Member ID</option><option value="nickname">Nickname A–Z</option><option value="joined">Most sessions</option>${fin ? '<option value="spend">Highest spending</option>' : ''}<option value="last">Last participation</option><option value="newest">Newest</option></select></div><div id="mlist"></div>
@@ -432,6 +432,7 @@ route('#/members', () => guard(async () => {
   $('#f-active', v).addEventListener('change', e => { memState.active = e.target.value; reload(); }); $('#f-sort', v).addEventListener('change', e => { memState.sort = e.target.value; reload(); });
   on(v, 'click', '[data-page]', (e, t) => { memState.page = +t.dataset.page; load(); });
   on(v, 'click', '#add,#add2', () => openMemberForm(null, load));
+  on(v, 'click', '#lyp', () => openLoyaltyPrint());
   on(v, 'click', '[data-edit]', (e, t) => { e.stopPropagation(); openMemberForm(window._members.find(m => m.id == t.dataset.edit), load); });
   on(v, 'click', '[data-del]', (e, t) => { e.stopPropagation(); runDelete({ what: 'member', url: '/api/members/' + t.dataset.del, onDone: load, message: 'Members with session history are deactivated instead of deleted, so history is preserved.' }); });
   on(v, 'click', '[data-go]', (e, t) => { if (!e.target.closest('button')) go(t.dataset.go); });
@@ -450,13 +451,19 @@ function importDialog(done) {
 
 route('#/members/(\\d+)', id => guard(async () => {
   const v = view(), fin = can('finance');
-  let cur, curCr;
+  let cur, curCr, curLy;
   const load = async () => {
     const r = await GET(`/api/members/${id}/profile`), m = r.member; cur = m;
     const cr = fin ? await GET(`/api/members/${id}/credit`) : { balance: 0, entries: [] }; curCr = cr;
+    const ly = await GET(`/api/members/${id}/loyalty`); curLy = ly; const lySvg = await LC.cardFor(m, ly, 'back', false);
+    setTimeout(() => lyCheer(m, ly), 350);
     mount(v, html`<a href="#/members" class="small">${icon('chevL', 14)} Members</a>
       ${pageHead(html`${m.nickname} ${m.active ? '' : badge('Inactive', 'grey')} ${demoTag(m)}`, html`${m.member_code}`, can('operations') ? html`<button class="btn" id="edit">${icon('edit', 16)} Edit</button>` : '')}
       <div class="grid g4" style="margin-bottom:14px">${kpi('Sessions registered', m.registered)}${kpi('Sessions paid', m.paid)}${kpi('Sessions attended', m.attended)}${fin ? kpi('Total spending', rp(m.spend)) : kpi('Favorite sport', m.favorite_sport || '—')}</div>
+      <div class="card" id="ly-card" style="margin-bottom:14px"><div class="card-title"><h2>Kartu loyalty</h2><div class="actions"><button class="btn sm" id="ly-png">Bagikan PNG</button><button class="btn sm" id="ly-cover">Cover</button><button class="btn sm" id="ly-print">Cetak</button></div></div>
+        <div class="ly-wrap">${raw(lySvg)}</div>
+        <div class="ly-info"><b>${ly.cycle_count}/20 sesi</b> · total ${ly.count} sesi hadir &amp; bayar${ly.cycle_no > 1 ? ` · kartu ke-${ly.cycle_no}` : ''}
+          <div class="muted small">${ly.available.length ? html`Reward siap dipakai: ${ly.available.map(x => html`<span class="badge green">${x.label}</span> `)}` : `Sesi ke-${ly.next.at} dapat <b>${ly.next.label}</b> (kurang ${ly.next.remaining} sesi).`}</div></div></div>
       <div class="grid g2" style="margin-bottom:14px"><div class="card"><div class="card-title"><h2>Profile</h2></div><div class="kv">
         <div><span>Member ID</span>${m.member_code}</div><div><span>Nickname</span>${m.nickname}</div>
         <div><span>WhatsApp</span>${m.whatsapp ? raw(`<a href="https://wa.me/${esc(m.whatsapp.replace('+', ''))}" target="_blank" rel="noopener">${esc(m.whatsapp)}</a>`) : '—'}</div>
@@ -468,6 +475,9 @@ route('#/members/(\\d+)', id => guard(async () => {
   };
   await load();
   on(v, 'click', '#edit', () => openMemberForm(cur, load));
+  on(v, 'click', '#ly-png', () => LC.shareImage(cur, curLy, 'back').catch(e => toast(e.message, 'err')));
+  on(v, 'click', '#ly-cover', () => LC.shareImage(cur, curLy, 'front').catch(e => toast(e.message, 'err')));
+  on(v, 'click', '#ly-print', () => LC.printCards([{ name: cur.nickname, code: cur.member_code, info: curLy }]).catch(e => toast(e.message, 'err')));
   on(v, 'click', '#cr-forfeit', () => openCreditAmount(id, 'forfeit', curCr.balance, load));
   on(v, 'click', '#cr-refund', () => openCreditAmount(id, 'refund', curCr.balance, load));
 }), 'members');
@@ -551,4 +561,29 @@ function openCreditAmount(mid, kind, balance, onDone) {
   formModal({ title: T_, size: 'sm', fields: [{ name: 'amount', label: 'Jumlah (Rp)', type: 'money', required: true }, { name: 'txn_date', label: 'Tanggal', type: 'date', required: true }, { name: 'reason', label: 'Alasan', full: true, max: 200 }], values: { amount: balance, txn_date: todayISO() },
     top: html`<div class="alert info" style="margin-bottom:12px">${icon('info', 18)}<span>${kind === 'forfeit' ? 'Saldo yang hangus menjadi pendapatan NPD (non-tunai).' : 'Uang tunai keluar dari NPD Petty Cash dan dicatat di Transactions.'} Saldo tersedia ${rp(balance)}.</span></div>`,
     onSubmit: async (d, ctx) => { await api('POST', `/api/members/${mid}/credit/${kind}`, d); ctx.modal.close(); toast('Tersimpan'); onDone && onDone(); } });
+}
+
+// ---- loyalty card printing (blank cards or selected members)
+async function openLoyaltyPrint() {
+  const r = await GET('/api/loyalty'), list = r.members;
+  const m = openModal({ title: 'Cetak kartu loyalty', size: 'sm', body: html`<div class="field"><label>Kartu kosong (nama ditulis tangan)</label><input id="ly-blank" type="number" min="0" max="200" value="10"><div class="hint">Format 100 × 70 mm, 2 sisi, bleed 3 mm + crop marks.</div></div>
+    <div class="field"><label>Atau kartu bernama (dengan stempel sesuai progres)</label><div class="ly-pick">${list.map(x => html`<label class="check"><input type="checkbox" data-m="${x.id}"> ${x.nickname} <span class="muted xs">${x.member_code} · ${x.cycle_count}/20</span></label>`)}</div></div>`,
+    footer: html`<button class="btn" data-close>Batal</button><button class="btn primary" id="ly-go">Buat PDF</button>` });
+  $('#ly-go', m.el).addEventListener('click', async () => {
+    try {
+      const cards = [], n = Math.max(0, Math.min(200, +$('#ly-blank', m.el).value || 0)); for (let i = 0; i < n; i++) cards.push({});
+      for (const c of $$('[data-m]:checked', m.el)) { const id = +c.dataset.m, mem = (await GET(`/api/members/${id}/profile`)).member; cards.push({ name: mem.nickname, code: mem.member_code }); }
+      if (!cards.length) throw new Error('Pilih jumlah kartu kosong atau member.');
+      m.close(); await LC.printCards(cards);
+    } catch (e) { toast(e.message, 'err'); }
+  });
+}
+
+// ---- cheering when a member reaches 5 / 10 / 15 / 20 (shown once per milestone, per device)
+function lyCheer(m, ly) {
+  if (!ly.count || ly.count % 5 || !document.querySelector('#ly-card')) return;
+  const key = `npd_cheer_${m.id}_${ly.count}`; try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch (e) { /* ignore */ }
+  const r = ly.rewards[ly.rewards.length - 1]; if (!r) return;
+  const cols = ['#BF0100', '#004ECC', '#FFC23D', '#C8E000', '#6FB1FF', '#fff'], bits = Array.from({ length: 42 }, (_, i) => `<i style="left:${(i * 37) % 100}%;background:${cols[i % cols.length]};animation-delay:${(i % 10) * .09}s;animation-duration:${1.8 + (i % 5) * .35}s"></i>`).join('');
+  openModal({ title: 'Selamat! 🎉', size: 'sm', body: html`<div class="cheer"><div class="confetti">${raw(bits)}</div><div class="cheer-n">${ly.count}x</div><div class="cheer-t">${m.nickname} sudah ${ly.count} sesi!</div><div class="cheer-r">${r.label}</div><div class="muted small">Reward ini dipakai di sesi berikutnya (tanpa kedaluwarsa).</div></div>`, footer: html`<button class="btn primary" data-close>Yeay!</button>` });
 }

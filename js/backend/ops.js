@@ -410,15 +410,19 @@
   });
 
   // =============================================================== participants
-  function paymentFields(sess, d, ex = {}) {
+  function paymentFields(sess, d, ex = {}, mid = ex.member_id) {
     const status = oneOf(d, 'payment_status', PAY_STATUS, ex.payment_status || 'Waiting for Payment', 'Payment status');
     const photo = ['1', 'true', 'yes'].includes(String(d.photo_selected !== undefined ? d.photo_selected : (ex.photo_selected || 0)).toLowerCase()) ? 1 : 0;
     const due = sess.session_fee + (sess.photo_mode === 'excluded' && photo ? sess.photo_fee : 0);
+    // loyalty reward (derived from attendance, see loyalty.js)
+    let rw = 'loyalty_reward' in d ? Math.trunc(Number(d.loyalty_reward) || 0) : (ex.loyalty_reward || 0), disc = 0;
+    if (!['Paid', 'Partially Refunded'].includes(status)) { if (rw && 'loyalty_reward' in d && Number(d.loyalty_reward)) throw new ApiError('Reward loyalty hanya bisa dipakai kalau status pembayaran Paid.'); rw = 0; }
+    else if (rw) { const same = ex.loyalty_reward === rw && 'loyalty_discount' in ex; disc = same ? ex.loyalty_discount : NPDB.loyalty.discountFor(mid, rw, sess, ex.id); }
     let amount = i(d, 'amount_paid', false, 0, 1e11, null, 'Payment amount'), refund = i(d, 'refund_amount', false, 0, 1e11, null, 'Refund amount');
     let pdate = dt(d, 'paid_date', false, 'Payment date'), rdate = dt(d, 'refund_date', false, 'Refund date');
     const wasPaid = E.PAID_STATES.includes(ex.payment_status);
     if (['Paid', 'Partially Refunded', 'Refunded'].includes(status)) {
-      if (amount === null) amount = wasPaid && ex.amount_paid ? ex.amount_paid : due;
+      if (amount === null) amount = wasPaid && ex.amount_paid ? ex.amount_paid : Math.max(0, due - disc);
       pdate = pdate || ex.paid_date || today();
       if (status === 'Paid') { refund = 0; rdate = null; }
       else if (status === 'Partially Refunded') {
@@ -431,7 +435,7 @@
     }
     let dep = 'deposit_fund_id' in d ? (d.deposit_fund_id ? Number(d.deposit_fund_id) : null) : (ex.deposit_fund_id || null);
     if (dep) { const fd = T.get('funds', dep); if (!fd || fd.kind !== 'npd') throw new ApiError('Pilih kantong NPD untuk tempat uang masuk.'); if (fd.code === 'bank_account') dep = null; }
-    return { deposit_fund_id: dep, payment_status: status, amount_paid: amount, refund_amount: refund, paid_date: pdate, refund_date: rdate, photo_selected: photo,
+    return { loyalty_reward: rw || null, loyalty_discount: disc, deposit_fund_id: dep, payment_status: status, amount_paid: amount, refund_amount: refund, paid_date: pdate, refund_date: rdate, photo_selected: photo,
       attendance: oneOf(d, 'attendance', ATTENDANCE, ex.attendance || 'Not Yet Confirmed', 'Attendance'), notes: 'notes' in d ? s(d, 'notes', false, 300) : (ex.notes || null) };
   }
   add('POST', '/sessions/<int:sid>/participants', 'operations', ({ body: d }, sid) => {
@@ -442,7 +446,7 @@
     const m = T.get('members', mid); if (!m || !m.active) throw new ApiError('Member not found or inactive.');
     if (T.find('session_participants', p => p.session_id === sid && p.member_id === mid)) throw new ApiError('This member is already registered in this session.', 409);
     if (sess.max_participants) { const n = T.all('session_participants').filter(p => p.session_id === sid && p.payment_status !== 'Cancelled').length; if (n >= sess.max_participants && !d.force_capacity) throw new ApiError(`Session is full (${n}/${sess.max_participants}).`, 409, { code: 'session_full' }); }
-    const f = paymentFields(sess, d), U = NPDB.credits.checkUse(mid, d, f, null);
+    const f = paymentFields(sess, d, {}, mid), U = NPDB.credits.checkUse(mid, d, f, null);
     f.credit_used = U; const r = T.insert('session_participants', Object.assign({ session_id: sid, member_id: mid, registered_at: today() }, f));
     NPDB.credits.recordUse(r, sess, U); syncFull(sid); log('register', 'participant', r.id, Object.assign({ session: sid, member: m.member_code }, f)); return ok({ id: r.id, member_id: mid, new_member_code: newMember });
   }, true);

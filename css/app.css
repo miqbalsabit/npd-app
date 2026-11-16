@@ -277,3 +277,18 @@ pre.json{white-space:pre-wrap;word-break:break-word;font-size:12px;background:va
 .txa{font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .txrow.in .txa{color:#0b7a43}.txrow.out .txa{color:#BF0100}
 .txact{display:flex;gap:0}
+
+.ly-wrap{max-width:560px;margin:0 auto;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px #0002;line-height:0}
+.ly-wrap svg{width:100%;height:auto;display:block}
+.ly-info{margin-top:10px;text-align:center}
+.ly-pick{max-height:220px;overflow:auto;border:1px solid var(--line,#dfe4ee);border-radius:8px;padding:6px}
+.ly-pick .check{display:block;padding:5px 4px}
+.cheer{position:relative;text-align:center;padding:18px 6px 6px;overflow:hidden}
+.cheer-n{font-family:var(--font-h);font-style:italic;font-size:64px;font-weight:900;color:var(--blue,#004ECC);line-height:1}
+.cheer-t{font-weight:700;margin:6px 0}
+.cheer-r{display:inline-block;background:#BF0100;color:#fff;font-weight:800;border-radius:999px;padding:6px 18px;margin:6px 0 10px;font-size:20px;animation:cheerpop .7s ease-out}
+.confetti{position:absolute;inset:0;pointer-events:none}
+.confetti i{position:absolute;top:-12px;width:8px;height:14px;border-radius:2px;animation:confall linear infinite}
+@keyframes confall{to{transform:translateY(340px) rotate(540deg);opacity:.2}}
+@keyframes cheerpop{0%{transform:scale(.3)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.confetti i,.cheer-r{animation:none}}

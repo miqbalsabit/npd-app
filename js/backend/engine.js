@@ -18,14 +18,16 @@
     refund = Math.min(refund, cash);
     const retained = cash - refund, selected = !!p.photo_selected;
     const due = fee + (mode === 'excluded' && selected ? photoFee : 0);
+    // loyalty reward: NPD absorbs the discount, so the photographer share is based on the gross amount (paid + discount)
+    const disc = paidState && refund === 0 ? num(p.loyalty_discount) : 0, base = retained + disc;
     let photo = 0;
-    if (retained > 0) {
-      if (mode === 'included' && fee > 0) photo = retained * Math.min(photoFee, fee) / fee;
-      else if (mode === 'excluded' && selected && due > 0) photo = retained * photoFee / due;
+    if (base > 0) {
+      if (mode === 'included' && fee > 0) photo = base * Math.min(photoFee, fee) / fee;
+      else if (mode === 'excluded' && selected && due > 0) photo = base * photoFee / due;
     }
     const sessionRev = retained - (mode === 'excluded' ? photo : 0);
     if (p.photo_waived) photo = 0;
-    return { cash, refund, retained, photo, session_rev: sessionRev, receivable: status === 'Waiting for Payment' ? due : 0, paid: retained > 0, counted: status !== 'Cancelled' };
+    return { cash, refund, retained, photo, session_rev: sessionRev, receivable: status === 'Waiting for Payment' ? due : 0, paid: retained > 0 || disc > 0, loyalty_discount: disc, counted: status !== 'Cancelled' };
   }
 
   function sessionFinancials(sess, parts, extra = 0, photographerPaid = 0) {

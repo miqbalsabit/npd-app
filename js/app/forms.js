@@ -56,6 +56,7 @@ async function openParticipantForm(session, existing, onDone) {
     { name: 'amount_paid', label: 'Amount paid', type: 'money' },
     { name: 'refund_amount', label: 'Refund amount', type: 'money', hint: 'Part of the payment returned to the member.' },
     { name: 'deposit_fund_id', label: 'Uang masuk ke', type: 'select', placeholder: 'Saldo Rekening', options: npdOpts },
+    { name: 'loyalty_reward', label: 'Pakai reward loyalty', type: 'select', placeholder: 'Tidak pakai', options: [], hint: 'Diskon hanya untuk biaya sesi (bukan foto).' },
     { name: 'credit_use', label: 'Pakai saldo member (Rp)', type: 'money', hint: 'Potong dari saldo member. Sisanya dibayar biasa.' },
     ...(mode === 'excluded' ? [{ name: 'photo_selected', label: `Photography add-on (${rp(session.photo_fee)})`, type: 'checkbox', full: true }] : []),
     { section: 'Attendance' },
@@ -79,13 +80,25 @@ async function openParticipantForm(session, existing, onDone) {
         const s = form.payment_status.value, paid = ['Paid', 'Partially Refunded', 'Refunded'].includes(s);
         $('[data-field=amount_paid]', form).classList.toggle('hide', !paid); $('[data-field=paid_date]', form).classList.toggle('hide', !paid);
         $('[data-field=refund_amount]', form).classList.toggle('hide', s !== 'Partially Refunded');
-        $('[data-field=credit_use]', form).classList.toggle('hide', s !== 'Paid'); $('[data-field=deposit_fund_id]', form).classList.toggle('hide', !paid);
+        $('[data-field=credit_use]', form).classList.toggle('hide', s !== 'Paid'); $('[data-field=loyalty_reward]', form).classList.toggle('hide', s !== 'Paid' || form.loyalty_reward.options.length < 2); if (s !== 'Paid') form.loyalty_reward.value = ''; $('[data-field=deposit_fund_id]', form).classList.toggle('hide', !paid);
         if (paid && !form.amount_paid.value) form.amount_paid.value = num(due());
       };
       form.payment_status.addEventListener('change', sync);
       form.photo_selected && form.photo_selected.addEventListener('change', () => { if (form.payment_status.value === 'Paid' || !editing) form.amount_paid.value = form.payment_status.value === 'Waiting for Payment' ? '' : num(due()); });
       sync();
       const crHint = bal => { const f = $('[data-field=credit_use]', form); let h = $('#cr-hint', f); if (!h) { h = document.createElement('div'); h.id = 'cr-hint'; h.className = 'hint'; f.appendChild(h); } h.textContent = bal > 0 ? `Saldo tersedia ${rp(bal)}` : 'Member ini belum punya saldo.'; };
+      const lyOpts = async mid => {
+        const sel_ = form.loyalty_reward; sel_.innerHTML = '<option value="">Tidak pakai</option>'; if (!mid) { sync(); return; }
+        try {
+          const ly = await GET(`/api/members/${mid}/loyalty`), base = Math.max(0, session.session_fee - (mode === 'included' ? Math.min(session.photo_fee, session.session_fee) : 0));
+          const mine = editing ? existing.loyalty_reward : 0;
+          ly.rewards.filter(x => !x.used || x.r === mine).forEach(x => { const o = document.createElement('option'); o.value = x.r; o.textContent = `${x.label} (−${rp(Math.round(base * x.pct / 100))})`; o.dataset.disc = Math.round(base * x.pct / 100); sel_.appendChild(o); });
+          if (mine) sel_.value = String(mine);
+        } catch (e) { /* no rewards */ }
+        sync();
+      };
+      form.loyalty_reward.addEventListener('change', () => { const o = form.loyalty_reward.selectedOptions[0]; if (form.payment_status.value === 'Paid') form.amount_paid.value = num(Math.max(0, due() - (+(o && o.dataset.disc) || 0))); });
+      if (editing) lyOpts(existing.member_id);
       if (editing) { GET(`/api/members/${existing.member_id}/credit`).then(c => crHint(c.balance + (existing.credit_used || 0))).catch(() => {}); return; }
       crHint(0);
       const sug = $('#msuggest', m.el), selBox = $('#msel', m.el);
@@ -97,11 +110,11 @@ async function openParticipantForm(session, existing, onDone) {
         sug._r = r.members;
       }, 200);
       $('#msearch', m.el).addEventListener('input', search);
-      on(m.el, 'click', '[data-pick]', (e, t) => { sel = sug._r.find(x => x.id == t.dataset.pick); crHint(sel.credit || 0); mount(sug, ''); $('#msearch', m.el).value = ''; showSel(); });
+      on(m.el, 'click', '[data-pick]', (e, t) => { sel = sug._r.find(x => x.id == t.dataset.pick); crHint(sel.credit || 0); lyOpts(sel.id); mount(sug, ''); $('#msearch', m.el).value = ''; showSel(); });
       $('#toggle-new', m.el).addEventListener('click', () => { creating = !creating; $('#newmember', m.el).classList.toggle('hide', !creating); $('#toggle-new', m.el).lastChild.textContent = creating ? ' Use existing member' : ' New member'; });
     },
     onSubmit: async (d, ctx) => {
-      const body = { payment_status: d.payment_status, paid_date: d.paid_date, amount_paid: d.amount_paid, refund_amount: d.refund_amount, photo_selected: d.photo_selected || 0, attendance: d.attendance, notes: d.notes, credit_use: d.credit_use || 0, deposit_fund_id: d.deposit_fund_id || '' };
+      const body = { payment_status: d.payment_status, paid_date: d.paid_date, amount_paid: d.amount_paid, refund_amount: d.refund_amount, photo_selected: d.photo_selected || 0, attendance: d.attendance, notes: d.notes, credit_use: d.credit_use || 0, loyalty_reward: d.loyalty_reward || 0, deposit_fund_id: d.deposit_fund_id || '' };
       if (editing) { await api('PUT', `/api/participants/${existing.id}`, body); ctx.modal.close(); toast('Registration updated'); onDone && onDone(); return; }
       if (creating) {
         const nick = $('#nm_nick', ctx.modal.el).value.trim(); if (!nick) throw new ApiError('New member nickname is required.');
