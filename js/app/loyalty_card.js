@@ -24,8 +24,9 @@ const LC = (() => {
     if (kind === 0) g += `<circle cx="${cx - r * 1.12}" cy="${cy}" r="${r * .95}" fill="none" stroke="${seam}" stroke-width="5"/><circle cx="${cx + r * 1.12}" cy="${cy}" r="${r * .95}" fill="none" stroke="${seam}" stroke-width="5"/>`;
     else { for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5; g += `<circle cx="${(cx + r * .74 * Math.cos(a)).toFixed(1)}" cy="${(cy + r * .74 * Math.sin(a)).toFixed(1)}" r="3.6" fill="${seam}"/>`; } for (let i = 0; i < 5; i++) { const a = i * 2 * Math.PI / 5 + .3; g += `<circle cx="${(cx + r * .4 * Math.cos(a)).toFixed(1)}" cy="${(cy + r * .4 * Math.sin(a)).toFixed(1)}" r="3.6" fill="${seam}"/>`; } }
     g += '</g>';
-    if (done) g += `<path d="M${cx - 20} ${cy + 2} l13 14 l27 -30" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>`;
-    else g += t(cx, cy + r - 13, String(n), 19, '#8EA6D6', { a: 'middle', w: 700 });
+    const f = r / 54;
+    if (done) g += `<path d="M${cx - 20 * f} ${cy + 2 * f} l${13 * f} ${14 * f} l${27 * f} ${-30 * f}" fill="none" stroke="#fff" stroke-width="${9 * f}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    else g += t(cx, cy + r - 13 * f, String(n), 19 * f, '#8EA6D6', { a: 'middle', w: 700 });
     return g;
   }
   function checkpoint(cy, k, state, n, id) {
@@ -97,8 +98,17 @@ const LC = (() => {
     });
   }
   async function cardFor(m, info, side, print) { return svg(side, { badge: await badge(), digital: !print, print, info: print && !m._withProgress ? null : info, name: m.nickname, code: m.member_code }); }
+  const loadImg = svgStr => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Gagal membuat gambar.')); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr); });
+  // one PNG for members: cover on top, stamp card below
+  async function combinedPng(m, info) {
+    const [fi, bi] = await Promise.all([cardFor(m, info, 'front', false).then(loadImg), cardFor(m, info, 'back', false).then(loadImg)]);
+    const pad = 80, gap = 60, cw = 2000, ch = 1400, c = document.createElement('canvas'); c.width = cw + 2 * pad; c.height = 2 * ch + gap + 2 * pad;
+    const x = c.getContext('2d'); x.fillStyle = '#EEF1F7'; x.fillRect(0, 0, c.width, c.height);
+    [fi, bi].forEach((im, i) => { const y = pad + i * (ch + gap); x.save(); x.beginPath(); x.roundRect(pad, y, cw, ch, 60); x.clip(); x.drawImage(im, pad, y, cw, ch); x.restore(); });
+    return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('Gagal membuat gambar.')), 'image/png'));
+  }
   async function shareImage(m, info, side) {
-    const blob = await toPng(await cardFor(m, info, side, false), 2), name = `kartu-npd-${(m.nickname || 'member').replace(/\W+/g, '-').toLowerCase()}-${side === 'front' ? 'cover' : 'stempel'}.png`;
+    const blob = side === 'both' ? await combinedPng(m, info) : await toPng(await cardFor(m, info, side, false), 2), name = `kartu-npd-${(m.nickname || 'member').replace(/\W+/g, '-').toLowerCase()}${side === 'both' ? '' : '-' + side}.png`;
     const file = new File([blob], name, { type: 'image/png' });
     try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Kartu loyalty NPD', text: `Kartu loyalty NPD ${m.nickname}: ${info.cycle_count}/20 sesi.` }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
     saveDownload({ name, mime: 'image/png', data: blob });

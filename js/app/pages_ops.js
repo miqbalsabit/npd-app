@@ -475,7 +475,7 @@ route('#/members/(\\d+)', id => guard(async () => {
   };
   await load();
   on(v, 'click', '#edit', () => openMemberForm(cur, load));
-  on(v, 'click', '#ly-png', () => LC.shareImage(cur, curLy, 'back').catch(e => toast(e.message, 'err')));
+  on(v, 'click', '#ly-png', () => LC.shareImage(cur, curLy, 'both').catch(e => toast(e.message, 'err')));
   on(v, 'click', '#ly-cover', () => LC.shareImage(cur, curLy, 'front').catch(e => toast(e.message, 'err')));
   on(v, 'click', '#ly-print', () => LC.printCards([{ name: cur.nickname, code: cur.member_code, info: curLy }]).catch(e => toast(e.message, 'err')));
   on(v, 'click', '#cr-forfeit', () => openCreditAmount(id, 'forfeit', curCr.balance, load));
