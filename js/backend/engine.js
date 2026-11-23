@@ -25,8 +25,8 @@
       if (mode === 'included' && fee > 0) photo = base * Math.min(photoFee, fee) / fee;
       else if (mode === 'excluded' && selected && due > 0) photo = base * photoFee / due;
     }
+    if (p.photo_waived) photo = 0;   // photo already turned into member credit: nothing for the photographer, nothing to carve out of session revenue
     const sessionRev = retained - (mode === 'excluded' ? photo : 0);
-    if (p.photo_waived) photo = 0;
     return { cash, refund, retained, photo, session_rev: sessionRev, receivable: status === 'Waiting for Payment' ? due : 0, paid: retained > 0 || disc > 0, loyalty_discount: disc, counted: status !== 'Cancelled' };
   }
 
