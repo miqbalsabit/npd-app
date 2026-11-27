@@ -9,7 +9,7 @@
   const shuffle = (a, r) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
   /** players: [{id, level, name}]. opts: mode 'doubles'|'singles', courts, rounds (0 = auto), featured (count), featuredMin, hostLevel, seed */
-  function generate(players, o = {}) {
+  function generate1(players, o = {}) {
     const mode = o.mode === 'singles' ? 'singles' : 'doubles', per = mode === 'doubles' ? 2 : 1, size = per * 2, r = rng(o.seed || Date.now());
     const P = players.map(p => ({ id: p.id, level: Math.min(5, Math.max(1, +p.level || 2)), name: p.name, host: false }));
     if (P.length % 2 === 1) P.push({ id: 0, level: Math.min(5, Math.max(1, +o.hostLevel || 3)), name: 'Host', host: true });
@@ -51,22 +51,28 @@
     const rounds = []; let lastRoundRest = new Set();
     for (let rd = 0; rd < R; rd++) {
       const isF = featRounds.has(rd);
-      // who rests: most matches played first, never twice in a row if avoidable, strong players stay on featured rounds
-      const topIds = new Set(P.filter(p => p.level >= 3).map(p => p.id));   // the session's best group: never rests on a featured round
-      let order = shuffle(P.slice(), r).sort((x, y) => ((plays.get(y.id) - (isF && topIds.has(y.id) ? .5 : 0)) - (plays.get(x.id) - (isF && topIds.has(x.id) ? .5 : 0))) || (isF ? x.level - y.level : 0));
+      // featured match first: four players of level 3-5 with level levels (spread <= 1), those who have played least; they never rest this round
+      let forced = null;
+      if (isF) {
+        const cand = shuffle(P.filter(p => p.level >= 3), r).sort((x, y) => y.level - x.level); let bestKey = null;
+        for (let k = 0; k + size <= cand.length; k++) {
+          const w = cand.slice(k, k + size); if (w[0].level - w[size - 1].level > 1) continue;
+          const key = [w.reduce((a, x) => a + plays.get(x.id), 0), -w.reduce((a, x) => a + x.level, 0)];
+          if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) { bestKey = key; forced = w.map(x => x.id); }
+        }
+      }
+      // who rests: most matches played first, never twice in a row if avoidable
+      let order = shuffle(P.filter(p => !forced || !forced.includes(p.id)), r).sort((x, y) => plays.get(y.id) - plays.get(x.id));
       const fresh = order.filter(p => !lastRoundRest.has(p.id)), tired = order.filter(p => lastRoundRest.has(p.id));
       const rest = fresh.concat(tired).slice(0, need), restIds = new Set(rest.map(p => p.id));
       const act = P.filter(p => !restIds.has(p.id)).map(p => p.id);
       let ms = [], feat = null;
-      if (isF) {
-        // a featured match = four players of level 3-5 whose levels are level (spread <= 1)
-        const cand = act.filter(x => lv.get(x) >= 3).sort((x, y) => lv.get(y) - lv.get(x) || r() - .5); let top = null, bestSum = -1;
-        for (let k = 0; k + size <= cand.length; k++) { const w = cand.slice(k, k + size); if (lv.get(w[0]) - lv.get(w[size - 1]) <= 1) { const sum = w.reduce((a, x) => a + lv.get(x), 0); if (sum > bestSum + (r() < .5 ? 0 : 1e-9) && sum >= bestSum) { top = w; bestSum = sum; } } }
-        if (top) { const m = split(top); feat = { a: m.a, b: m.b, featured: true }; }
-      }
+      if (forced) { const m = split(forced); feat = { a: m.a, b: m.b, featured: true }; }
       const left = feat ? act.filter(i => ![...feat.a, ...feat.b].includes(i)) : act;
       ms = partition(left, c - (feat ? 1 : 0)).map(m => ({ a: m.a, b: m.b, featured: false }));
       if (feat) ms.unshift(feat);
+      // any match whose four players are level 3-5 and level (spread <= 1) is a seru match, designated or not
+      ms.forEach(m => { const ls = [...m.a, ...m.b].map(i => lv.get(i)); if (Math.min(...ls) >= 3 && Math.max(...ls) - Math.min(...ls) <= 1) m.featured = true; });
       ms.forEach((m, k) => {
         m.court = k + 1;
         for (const t of [m.a, m.b]) { if (per === 2) inc(pair, t[0], t[1]); }
@@ -94,6 +100,17 @@
   }
   const levelFor = (mid, sess) => { const k = skillOf(mid, sess.sport_id), first = priorCount(mid, sess) < 2; return { level: k ? k.level : (first ? 1 : 2), level_set: !!k, first_timer: first }; };
   const matchesOf = sid => sortBy(T.filter('session_matches', m => m.session_id === sid), 'round', 'court');
+  /** tries several seeds: keeps the plan with the fairest play counts, then the most featured matches */
+  function generate(players, o = {}) {
+    const base = o.seed || Date.now(); let best = null, bestKey = null;
+    for (let t = 0; t < 40; t++) {
+      const g = generate1(players, Object.assign({}, o, { seed: base + t * 7919 })), sm = g.summary;
+      const key = [sm.max_plays - sm.min_plays > (o.rounds ? 1 : 0) ? 1 : 0, -Math.min(sm.featured, sm.featured_wanted), sm.max_plays - sm.min_plays];
+      if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2])))) { best = g; bestKey = key; }
+      if (key[0] === 0 && key[1] === -sm.featured_wanted) break;
+    }
+    return best;
+  }
   const nameOf = id => id === 0 ? 'Host' : ((T.get('members', id) || {}).nickname || '?');
   const view = m => ({ id: m.id, round: m.round, court: m.court, mode: m.mode, featured: !!m.featured, a: [m.a1, m.a2].filter(x => x !== null && x !== undefined), b: [m.b1, m.b2].filter(x => x !== null && x !== undefined), score_a: m.score_a, score_b: m.score_b });
   function summary(sid) {
