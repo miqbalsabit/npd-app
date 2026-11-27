@@ -88,7 +88,7 @@ route('#/sessions/(\\d+)/match', id => guard(async () => {
   });
   on(v, 'click', '#mm-go', async () => {
     const body = { mode: st.mode, courts: st.courts, rounds: st.rounds, featured: st.featured, host_level: st.host_level, members: [...st.sel] };
-    const run = force => api('POST', `/api/sessions/${id}/matchup/generate`, { ...body, force }).then(() => { toast('Match dibuat'); load(); });
+    const run = force => api('POST', `/api/sessions/${id}/matchup/generate`, { ...body, force }).then(res => { const sm = res && res.summary; if (sm && sm.featured < sm.featured_wanted) toast(`Match seru hanya ${sm.featured} dari ${sm.featured_wanted}: pemain level 3+ kurang dari 4. Isi level member dulu.`, 'err'); else toast('Match dibuat'); load(); });
     try { await run(false); } catch (er) { if (er.status === 409 && await confirmBox({ title: 'Generate ulang?', message: er.message, confirmText: 'Hapus & generate ulang', danger: true })) { try { await run(true); } catch (e2) { toast(e2.message, 'err'); } } else if (er.status !== 409) toast(er.message, 'err'); }
   });
   const matchModal = existing => {

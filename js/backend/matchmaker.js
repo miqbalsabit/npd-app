@@ -60,7 +60,7 @@
       let ms = [], feat = null;
       if (isF) {
         const top = act.slice().sort((x, y) => lv.get(y) - lv.get(x) || r() - .5).slice(0, size);
-        const m = split(top); feat = { a: m.a, b: m.b, featured: true };   // the organiser asked for F featured matches: the strongest active players of that round, always labelled
+        if (Math.min(...top.map(x => lv.get(x))) >= Math.max(3, Math.min(featMin, topCut))) { const m = split(top); feat = { a: m.a, b: m.b, featured: true }; }   // only genuinely strong players (level 3+; 4+ when the session has enough of them)
       }
       const left = feat ? act.filter(i => ![...feat.a, ...feat.b].includes(i)) : act;
       ms = partition(left, c - (feat ? 1 : 0)).map(m => ({ a: m.a, b: m.b, featured: false }));
@@ -75,7 +75,7 @@
       rounds.push({ n: rd + 1, matches: ms, rest: rest.map(p => p.id) });
     }
     const pl = [...plays.values()], cntAll = rounds.reduce((x, y) => x + y.matches.length, 0);
-    return { mode, courts: c, rounds, players: P, plays: Object.fromEntries(plays), summary: { players: N, host: P.some(p => p.host), matches: cntAll, min_plays: Math.min(...pl), max_plays: Math.max(...pl), featured: rounds.reduce((x, y) => x + y.matches.filter(m => m.featured).length, 0) } };
+    return { mode, courts: c, rounds, players: P, plays: Object.fromEntries(plays), summary: { players: N, host: P.some(p => p.host), matches: cntAll, min_plays: Math.min(...pl), max_plays: Math.max(...pl), featured_wanted: F, featured: rounds.reduce((x, y) => x + y.matches.filter(m => m.featured).length, 0) } };
   }
 
   // ---------------------------------------------------------------- data helpers
