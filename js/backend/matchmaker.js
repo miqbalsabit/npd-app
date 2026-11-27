@@ -52,15 +52,17 @@
     for (let rd = 0; rd < R; rd++) {
       const isF = featRounds.has(rd);
       // who rests: most matches played first, never twice in a row if avoidable, strong players stay on featured rounds
-      const topIds = new Set(P.slice().sort((x, y) => y.level - x.level || x.id - y.id).slice(0, size).map(p => p.id));   // the session's best group: never rests on a featured round
+      const topIds = new Set(P.filter(p => p.level >= 3).map(p => p.id));   // the session's best group: never rests on a featured round
       let order = shuffle(P.slice(), r).sort((x, y) => ((plays.get(y.id) - (isF && topIds.has(y.id) ? .5 : 0)) - (plays.get(x.id) - (isF && topIds.has(x.id) ? .5 : 0))) || (isF ? x.level - y.level : 0));
       const fresh = order.filter(p => !lastRoundRest.has(p.id)), tired = order.filter(p => lastRoundRest.has(p.id));
       const rest = fresh.concat(tired).slice(0, need), restIds = new Set(rest.map(p => p.id));
       const act = P.filter(p => !restIds.has(p.id)).map(p => p.id);
       let ms = [], feat = null;
       if (isF) {
-        const top = act.slice().sort((x, y) => lv.get(y) - lv.get(x) || r() - .5).slice(0, size);
-        if (Math.min(...top.map(x => lv.get(x))) >= Math.max(3, Math.min(featMin, topCut))) { const m = split(top); feat = { a: m.a, b: m.b, featured: true }; }   // only genuinely strong players (level 3+; 4+ when the session has enough of them)
+        // a featured match = four players of level 3-5 whose levels are level (spread <= 1)
+        const cand = act.filter(x => lv.get(x) >= 3).sort((x, y) => lv.get(y) - lv.get(x) || r() - .5); let top = null, bestSum = -1;
+        for (let k = 0; k + size <= cand.length; k++) { const w = cand.slice(k, k + size); if (lv.get(w[0]) - lv.get(w[size - 1]) <= 1) { const sum = w.reduce((a, x) => a + lv.get(x), 0); if (sum > bestSum + (r() < .5 ? 0 : 1e-9) && sum >= bestSum) { top = w; bestSum = sum; } } }
+        if (top) { const m = split(top); feat = { a: m.a, b: m.b, featured: true }; }
       }
       const left = feat ? act.filter(i => ![...feat.a, ...feat.b].includes(i)) : act;
       ms = partition(left, c - (feat ? 1 : 0)).map(m => ({ a: m.a, b: m.b, featured: false }));
