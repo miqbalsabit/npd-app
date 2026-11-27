@@ -306,3 +306,5 @@ pre.json{white-space:pre-wrap;word-break:break-word;font-size:12px;background:va
 .mm-s{display:flex;align-items:center;gap:4px}.mm-s .inp{width:58px;min-height:38px;padding:4px 6px;text-align:center}
 .mm-plays{display:flex;flex-wrap:wrap;gap:6px}.mm-rest{margin-top:2px}
 .chip{display:inline-block;background:#E6EEFB;border-radius:999px;padding:4px 10px;font-size:13px}
+
+.mm-x{border:0;background:none;color:#004ECC;font-weight:700;font-size:12px;text-decoration:underline;cursor:pointer;padding:0 4px}

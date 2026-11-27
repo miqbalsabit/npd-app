@@ -61,9 +61,10 @@ route('#/sessions/(\\d+)/match', id => guard(async () => {
           ${odd ? html`<div class="field"><label>Level Host (pemain ganjil)</label><select class="inp" id="mm-host">${[1, 2, 3, 4, 5].map(l => html`<option value="${l}" ${l === st.host_level ? 'selected' : ''}>${MM_LEVELS[l]}</option>`)}</select><div class="hint">Jumlah pemain ganjil, jadi Host ikut main supaya genap.</div></div>` : ''}
         </div>
         <button class="btn primary" id="mm-go">${r.matches.length ? 'Generate ulang' : 'Generate match'}</button></div>` : ''}
-      ${r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Hasil match</h2><div class="actions"><button class="btn sm" id="mm-png">Bagikan PNG</button>${ops ? html`<button class="btn sm danger" id="mm-del">Hapus</button>` : ''}</div></div>
+      ${ops && !r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Match manual</h2><button class="btn sm" id="mm-add">${icon('plus', 16)} Tambah match manual</button></div><div class="muted small">Buat match sendiri tanpa generate: pilih pemain tiap tim.</div></div>` : ''}
+      ${r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Hasil match</h2><div class="actions">${ops ? html`<button class="btn sm" id="mm-add">${icon('plus', 16)} Tambah match</button>` : ''}<button class="btn sm" id="mm-png">Bagikan PNG</button>${ops ? html`<button class="btn sm danger" id="mm-del">Hapus</button>` : ''}</div></div>
         <div class="muted small" style="margin-bottom:10px">${r.summary.matches} match · ${r.summary.rounds} ronde · main ${r.summary.min_plays === r.summary.max_plays ? html`<b>${r.summary.max_plays}x semua</b>` : html`<b>${r.summary.min_plays}–${r.summary.max_plays}x</b> per orang`}</div>
-        ${[...byRound.entries()].map(([rd, ms]) => html`<div class="mm-round"><div class="mm-rh">Ronde ${rd}</div>${ms.map(m => html`<div class="mm-match${m.featured ? ' feat' : ''}"><div class="mm-c">Lap ${m.court}${m.featured ? html` <span class="mm-star">★ Seru</span>` : ''}</div>
+        ${[...byRound.entries()].map(([rd, ms]) => html`<div class="mm-round"><div class="mm-rh">Ronde ${rd}</div>${ms.map(m => html`<div class="mm-match${m.featured ? ' feat' : ''}"><div class="mm-c">Lap ${m.court}${m.featured ? html` <span class="mm-star">★ Seru</span>` : ''}${ops ? html` <button class="mm-x" data-medit="${m.id}" aria-label="Ubah match">ubah</button>` : ''}</div>
           <div class="mm-t"><span>${nm(m.a)}</span><span class="mm-vs">vs</span><span>${nm(m.b)}</span></div>
           <div class="mm-s"><input class="inp" type="number" min="0" max="99" data-sc="${m.id}" data-side="a" value="${m.score_a ?? ''}" ${ops ? '' : 'disabled'} aria-label="Skor tim 1"><span>–</span><input class="inp" type="number" min="0" max="99" data-sc="${m.id}" data-side="b" value="${m.score_b ?? ''}" ${ops ? '' : 'disabled'} aria-label="Skor tim 2"></div></div>`)}
           ${rest.get(rd).length ? html`<div class="muted xs mm-rest">Istirahat: ${nm(rest.get(rd))}</div>` : ''}</div>`)}
@@ -90,6 +91,32 @@ route('#/sessions/(\\d+)/match', id => guard(async () => {
     const run = force => api('POST', `/api/sessions/${id}/matchup/generate`, { ...body, force }).then(() => { toast('Match dibuat'); load(); });
     try { await run(false); } catch (er) { if (er.status === 409 && await confirmBox({ title: 'Generate ulang?', message: er.message, confirmText: 'Hapus & generate ulang', danger: true })) { try { await run(true); } catch (e2) { toast(e2.message, 'err'); } } else if (er.status !== 409) toast(er.message, 'err'); }
   });
+  const matchModal = existing => {
+    const players = [{ member_id: 0, nickname: 'Host' }, ...cur.players.filter(p => st.sel.has(p.member_id) || (existing && [...existing.a, ...existing.b].includes(p.member_id)))];
+    const nextRound = cur.matches.length ? Math.max(...cur.matches.map(m => m.round)) + 1 : 1;
+    const e = existing || { round: nextRound, court: '', featured: false, a: [], b: [], score_a: null, score_b: null }, dbl = !existing || existing.a.length === 2;
+    const sel = (nme, val) => html`<select class="inp" name="${nme}"><option value="">— pilih —</option>${players.map(p => html`<option value="${p.member_id}" ${val === p.member_id ? 'selected' : ''}>${p.nickname}</option>`)}</select>`;
+    const m = openModal({ title: existing ? 'Ubah match' : 'Tambah match manual', size: 'sm', body: html`
+      <div class="field"><label>Format</label><select class="inp" id="cm-mode"><option value="doubles" ${dbl ? 'selected' : ''}>2 vs 2</option><option value="singles" ${dbl ? '' : 'selected'}>1 vs 1</option></select></div>
+      <div class="grid g2"><div class="field"><label>Ronde</label><input class="inp" type="number" min="1" name="round" value="${e.round}"></div><div class="field"><label>Lapangan</label><input class="inp" type="number" min="1" name="court" value="${e.court}" placeholder="otomatis"></div></div>
+      <div class="field"><label>Tim 1</label>${sel('a0', e.a[0])}<div id="cm-a1" class="${dbl ? '' : 'hide'}" style="margin-top:6px">${sel('a1', e.a[1])}</div></div>
+      <div class="field"><label>Tim 2</label>${sel('b0', e.b[0])}<div id="cm-b1" class="${dbl ? '' : 'hide'}" style="margin-top:6px">${sel('b1', e.b[1])}</div></div>
+      <div class="grid g2"><div class="field"><label>Skor tim 1</label><input class="inp" type="number" min="0" max="99" name="score_a" value="${e.score_a ?? ''}"></div><div class="field"><label>Skor tim 2</label><input class="inp" type="number" min="0" max="99" name="score_b" value="${e.score_b ?? ''}"></div></div>
+      <label class="check"><input type="checkbox" name="featured" ${e.featured ? 'checked' : ''}> Tandai sebagai match seru</label>`,
+      footer: html`${existing ? html`<button class="btn danger" id="cm-del" style="margin-right:auto">Hapus</button>` : ''}<button class="btn" data-close>Batal</button><button class="btn primary" id="cm-save">Simpan</button>` });
+    const q = n => $(`[name=${n}]`, m.el), val = n => q(n).value === '' ? null : +q(n).value;
+    $('#cm-mode', m.el).addEventListener('change', ev => { $('#cm-a1', m.el).classList.toggle('hide', ev.target.value === 'singles'); $('#cm-b1', m.el).classList.toggle('hide', ev.target.value === 'singles'); });
+    if (existing) $('#cm-del', m.el).addEventListener('click', async () => { m.close(); await api('DELETE', `/api/matches/${existing.id}`); toast('Match dihapus'); load(); });
+    $('#cm-save', m.el).addEventListener('click', async () => {
+      const two = $('#cm-mode', m.el).value === 'doubles', pick = ns => ns.map(val).filter(x => x !== null);
+      const body = { round: val('round'), court: val('court') || '', a: pick(two ? ['a0', 'a1'] : ['a0']), b: pick(two ? ['b0', 'b1'] : ['b0']), featured: q('featured').checked ? 1 : 0, score_a: q('score_a').value, score_b: q('score_b').value };
+      const send = force => existing ? api('PUT', `/api/matches/${existing.id}`, { ...body, force }) : api('POST', `/api/sessions/${id}/matches`, { ...body, force });
+      const done = () => { m.close(); toast('Match disimpan'); load(); };
+      try { await send(false); done(); } catch (er) { if (er.status === 409 && await confirmBox({ title: 'Pemain bentrok', message: er.message, confirmText: 'Tetap simpan' })) { try { await send(true); done(); } catch (e2) { toast(e2.message, 'err'); } } else if (er.status !== 409) toast(er.message, 'err'); }
+    });
+  };
+  on(v, 'click', '#mm-add', () => matchModal(null));
+  on(v, 'click', '[data-medit]', ev => matchModal(cur.matches.find(x => x.id === +ev.target.dataset.medit)));
   on(v, 'click', '#mm-png', () => mmShare(cur.session.name, `${cur.session.sport} · ${fdate(cur.session.event_date)}`, cur.names, cur.matches, cur._rest).catch(e => toast(e.message, 'err')));
   on(v, 'click', '#mm-del', async () => { if (await confirmBox({ title: 'Hapus semua match?', message: 'Semua match dan skor sesi ini dihapus.', confirmText: 'Hapus', danger: true })) { await api('DELETE', `/api/sessions/${id}/matchup`); load(); } });
 }), 'sessions');

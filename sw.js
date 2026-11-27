@@ -1,6 +1,6 @@
 /* NPD service worker – caches the static app shell only (code, styles, icons). Never touches data:
  * business data lives in the device database (IndexedDB) and on api.github.com, which this worker ignores. */
-const BUILD = 'b11271444';
+const BUILD = 'b11271459';
 const CACHE = 'npd-shell-' + BUILD;
 const SHELL = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icons/icon-192.png', 'img/brand/badge.png', 'img/brand/reclub.png',
   ...['util', 'store', 'engine', 'router', 'ops', 'fin', 'credits', 'loyalty', 'matchmaker', 'reports', 'seed', 'sync'].map(f => 'js/backend/' + f + '.js'),

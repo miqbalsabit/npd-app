@@ -59,7 +59,7 @@
       let ms = [], feat = null;
       if (isF) {
         const top = act.slice().sort((x, y) => lv.get(y) - lv.get(x) || r() - .5).slice(0, size);
-        const m = split(top); feat = { a: m.a, b: m.b, featured: Math.min(...top.map(i => lv.get(i))) >= Math.max(3, Math.min(featMin, topCut)) };
+        const m = split(top); feat = { a: m.a, b: m.b, featured: true };   // the organiser asked for F featured matches: the strongest active players of that round, always labelled
       }
       const left = feat ? act.filter(i => ![...feat.a, ...feat.b].includes(i)) : act;
       ms = partition(left, c - (feat ? 1 : 0)).map(m => ({ a: m.a, b: m.b, featured: false }));
@@ -132,8 +132,36 @@
     return ok({ rounds: out.rounds.map(r => ({ n: r.n, rest: r.rest })), summary: out.summary });
   });
   add('DELETE', '/sessions/<int:sid>/matchup', 'operations', (c, sid) => { sessionOf(sid); matchesOf(sid).forEach(m => T.remove('session_matches', m.id)); return ok({ deleted: true }); });
+  // players of a hand-made match: member ids that are registered in the session, or 0 = Host
+  function teams(sid, d, m) {
+    const A = Array.isArray(d.a) ? d.a.map(Number) : m ? [m.a1, m.a2].filter(x => x != null) : [], B = Array.isArray(d.b) ? d.b.map(Number) : m ? [m.b1, m.b2].filter(x => x != null) : [];
+    if (!(A.length === B.length && (A.length === 1 || A.length === 2))) throw new ApiError('Tiap tim harus 1 pemain (1 vs 1) atau 2 pemain (2 vs 2), jumlahnya sama.');
+    const all = [...A, ...B]; if (new Set(all).size !== all.length) throw new ApiError('Satu pemain tidak boleh muncul dua kali dalam match.');
+    for (const id of all) if (id !== 0 && !T.filter('session_participants', p => p.session_id === sid && p.member_id === id && p.payment_status !== 'Cancelled').length) throw new ApiError(`${nameOf(id)} tidak terdaftar di sesi ini.`);
+    return { A, B };
+  }
+  const slots = (A, B) => ({ a1: A[0] ?? null, a2: A[1] ?? null, b1: B[0] ?? null, b2: B[1] ?? null, mode: A.length === 2 ? 'doubles' : 'singles' });
+  function clash(sid, round, ids, exceptId) { const x = matchesOf(sid).find(o => o.id !== exceptId && o.round === round && [o.a1, o.a2, o.b1, o.b2].some(i => i != null && ids.includes(i))); return x ? `${nameOf([x.a1, x.a2, x.b1, x.b2].find(i => i != null && ids.includes(i)))} sudah main di ronde ${round} (lapangan ${x.court}).` : null; }
+  add('POST', '/sessions/<int:sid>/matches', 'operations', ({ body: d }, sid) => {
+    sessionOf(sid); const ex = matchesOf(sid), last = ex.length ? Math.max(...ex.map(m => m.round)) : 0;
+    const round = Math.trunc(Number(d.round)) || last + 1; if (round < 1 || round > 99) throw new ApiError('Ronde harus 1–99.');
+    const { A, B } = teams(sid, d, null), bad = clash(sid, round, [...A, ...B], null); if (bad && !d.force) throw new ApiError(bad + ' Tetap simpan?', 409);
+    const court = Math.trunc(Number(d.court)) || (Math.max(0, ...ex.filter(m => m.round === round).map(m => m.court)) + 1);
+    const sa = d.score_a === '' || d.score_a == null ? null : Math.trunc(Number(d.score_a)), sb = d.score_b === '' || d.score_b == null ? null : Math.trunc(Number(d.score_b));
+    if ((sa === null) !== (sb === null)) throw new ApiError('Isi skor kedua tim.'); if (sa !== null && !(sa >= 0 && sa <= 99 && sb >= 0 && sb <= 99)) throw new ApiError('Skor harus 0–99.');
+    const r = T.insert('session_matches', Object.assign({ session_id: sid, batch: Date.now(), round, court, featured: d.featured ? 1 : 0, custom: 1, score_a: sa, score_b: sb }, slots(A, B)));
+    return ok(view(r));
+  });
+  add('DELETE', '/matches/<int:mid>', 'operations', (c, mid) => { if (!T.get('session_matches', mid)) throw new ApiError('Match tidak ditemukan.', 404); T.remove('session_matches', mid); return ok({ deleted: true }); });
   add('PUT', '/matches/<int:mid>', 'operations', ({ body: d }, mid) => {
     const m = T.get('session_matches', mid); if (!m) throw new ApiError('Match tidak ditemukan.', 404);
+    if (Array.isArray(d.a) || Array.isArray(d.b) || 'round' in d || 'court' in d || 'featured' in d) {
+      const { A, B } = teams(m.session_id, d, m), round = 'round' in d ? Math.trunc(Number(d.round)) : m.round; if (!(round >= 1 && round <= 99)) throw new ApiError('Ronde harus 1–99.');
+      const bad = clash(m.session_id, round, [...A, ...B], m.id); if (bad && !d.force) throw new ApiError(bad + ' Tetap simpan?', 409);
+      const patch = Object.assign({ round, court: 'court' in d ? Math.max(1, Math.trunc(Number(d.court)) || m.court) : m.court, featured: 'featured' in d ? (d.featured ? 1 : 0) : m.featured }, slots(A, B));
+      if ('score_a' in d || 'score_b' in d) { const sa = d.score_a === '' || d.score_a == null ? null : Math.trunc(Number(d.score_a)), sb = d.score_b === '' || d.score_b == null ? null : Math.trunc(Number(d.score_b)); if ((sa === null) !== (sb === null)) throw new ApiError('Isi skor kedua tim.'); patch.score_a = sa; patch.score_b = sb; }
+      T.update('session_matches', mid, patch); return ok(view(T.get('session_matches', mid)));
+    }
     const sc = k => { if (!(k in d)) return m[k]; if (d[k] === '' || d[k] === null) return null; const n = Math.trunc(Number(d[k])); if (!(n >= 0 && n <= 99)) throw new ApiError('Skor harus 0–99.'); return n; };
     const a = sc('score_a'), b = sc('score_b'); if ((a === null) !== (b === null)) throw new ApiError('Isi skor kedua tim.');
     const patch = { score_a: a, score_b: b };
