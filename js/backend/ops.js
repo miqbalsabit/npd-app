@@ -159,7 +159,7 @@
   add('GET', '/members', 'view', ({ q }) => {
     const st = memberStats(), qq = (q.q || '').trim(), act_ = q.active === undefined ? '1' : q.active;
     const cb = E.creditBalances();
-    let rows = T.all('members').map(m => { const a = st.get(m.id); return Object.assign({}, m, { credit: Math.max(0, cb.get(m.id) || 0), joined: a ? a.joined : 0, sports: a ? a.sportSet.size : 0, spend: a ? a.spend : 0, last_date: a ? a.last_date : null, first_date: a ? a.first_date : null }); });
+    let rows = T.all('members').map(m => { const a = st.get(m.id); return Object.assign({}, m, { levels: T.filter('member_skills', k => k.member_id === m.id).map(k => { const sp = T.get('sports', k.sport_id); return sp ? `${sp.name} ${k.level}` : null; }).filter(Boolean).join(' · '), credit: Math.max(0, cb.get(m.id) || 0), joined: a ? a.joined : 0, sports: a ? a.sportSet.size : 0, spend: a ? a.spend : 0, last_date: a ? a.last_date : null, first_date: a ? a.first_date : null }); });
     if (qq) rows = rows.filter(m => memberMatch(m, qq));
     if (act_ === '0' || act_ === '1') rows = rows.filter(m => String(m.active) === act_);
     if (q.activity === 'inactive30') { const lim = NPDB.addDays(today(), -30); rows = rows.filter(m => !m.last_date || m.last_date < lim); }

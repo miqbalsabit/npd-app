@@ -235,7 +235,7 @@ route('#/sessions/(\\d+)', id => guard(async () => {
             { label: 'Variance', num: true, render: r => { const dlt = r[2] - r[1], good = r[4] ? dlt <= 0 : dlt >= 0; return html`<b class="${dlt === 0 ? '' : good ? 'pos' : 'neg'}">${dlt > 0 ? '+' : ''}${r[3] ? rp(dlt) : dlt}</b>`; } }], evalRows.map(r => ({ 0: r[0], 1: r[1], 2: r[2], 3: r[3], 4: r[4] })).map(o => ({ 0: o[0], ...o })))}
           <div class="muted xs" style="margin-top:8px">Target revenue = target participants × session fee. Budget = venue cost + additional operational budget (${rp(s.budget_extra)}).</div></div></div>` : ''}
       <div class="card" style="margin-bottom:14px">
-        <div class="card-title"><h2>Participants (${ps.length})</h2>${ops && s.status !== 'Cancelled' ? html`<button class="btn primary sm" id="a-add">${icon('plus', 16)} Add participant</button>` : ''}</div>
+        <div class="card-title"><h2>Participants (${ps.length})</h2><div class="actions"><a class="btn sm" href="#/sessions/${id}/match">Generate match</a></div>${ops && s.status !== 'Cancelled' ? html`<button class="btn primary sm" id="a-add">${icon('plus', 16)} Add participant</button>` : ''}</div>
         ${table([
           { label: 'Member', render: p => html`<div class="strong">${p.nickname}</div><div class="muted xs">${p.member_code}</div>` },
           { label: 'WhatsApp', render: p => p.whatsapp ? raw(`<a href="https://wa.me/${esc(p.whatsapp.replace('+', ''))}" target="_blank" rel="noopener">${esc(p.whatsapp)}</a>`) : '—' },
@@ -422,7 +422,7 @@ route('#/members', () => guard(async () => {
     mount($('#mlist', v), html`${table([
       { label: 'Member ID', render: m => html`<b>${m.member_code}</b>${m.active ? '' : html` ${badge('Inactive', 'grey')}`}${demoTag(m)}` },
       { label: 'Nickname', render: m => html`<span class="strong">${m.nickname}</span>` }, { label: 'WhatsApp', render: m => m.whatsapp || '—' },
-      { label: 'Registered', render: m => fdate(m.registered_at) }, { label: 'Sessions', num: true, key: 'joined' }, ...(can('finance') ? [{ label: 'Saldo', num: true, render: m => m.credit > 0 ? html`<b class="pos">${rp(m.credit)}</b>` : '—' }] : []),
+      { label: 'Level', render: m => m.levels ? html`<span class="muted xs">${m.levels}</span>` : '—' }, { label: 'Registered', render: m => fdate(m.registered_at) }, { label: 'Sessions', num: true, key: 'joined' }, ...(can('finance') ? [{ label: 'Saldo', num: true, render: m => m.credit > 0 ? html`<b class="pos">${rp(m.credit)}</b>` : '—' }] : []),
       { label: '', act: true, render: m => can('operations') ? html`<button class="icon-btn sm" data-edit="${m.id}" aria-label="Edit">${icon('edit', 18)}</button><button class="icon-btn sm red" data-del="${m.id}" aria-label="Delete">${icon('trash', 18)}</button>` : '' }],
       r.members, { rowAttr: m => `class="click" data-go="#/members/${m.id}"`, empty: emptyState('No members found', 'Add a member or import a CSV/Excel file.', can('operations') ? html`<button class="btn primary sm" id="add2">Add member</button>` : '') })}${pager(r.total, memState.page, 25)}`);
   };
@@ -457,6 +457,7 @@ route('#/members/(\\d+)', id => guard(async () => {
     const cr = fin ? await GET(`/api/members/${id}/credit`) : { balance: 0, entries: [] }; curCr = cr;
     const ly = await GET(`/api/members/${id}/loyalty`); curLy = ly; const lySvg = await LC.cardFor(m, ly, 'back', false);
     setTimeout(() => lyCheer(m, ly), 350);
+    const ms = await GET(`/api/members/${id}/match-stats`);
     mount(v, html`<a href="#/members" class="small">${icon('chevL', 14)} Members</a>
       ${pageHead(html`${m.nickname} ${m.active ? '' : badge('Inactive', 'grey')} ${demoTag(m)}`, html`${m.member_code}`, can('operations') ? html`<button class="btn" id="edit">${icon('edit', 16)} Edit</button>` : '')}
       <div class="grid g4" style="margin-bottom:14px">${kpi('Sessions registered', m.registered)}${kpi('Sessions paid', m.paid)}${kpi('Sessions attended', m.attended)}${fin ? kpi('Total spending', rp(m.spend)) : kpi('Favorite sport', m.favorite_sport || '—')}</div>
@@ -464,6 +465,10 @@ route('#/members/(\\d+)', id => guard(async () => {
         <div class="ly-wrap">${raw(lySvg)}</div>
         <div class="ly-info"><b>${ly.cycle_count}/20 sesi</b> · total ${ly.count} sesi hadir &amp; bayar${ly.cycle_no > 1 ? ` · kartu ke-${ly.cycle_no}` : ''}
           <div class="muted small">${ly.available.length ? html`Reward siap dipakai: ${ly.available.map(x => html`<span class="badge green">${x.label}</span> `)}` : `Sesi ke-${ly.next.at} dapat <b>${ly.next.label}</b> (kurang ${ly.next.remaining} sesi).`}</div></div></div>
+      ${ms.played || ms.levels.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Statistik match</h2></div>
+        <div class="muted small">${ms.levels.length ? ms.levels.map(l => `${l.sport}: level ${l.level}`).join(' · ') : 'Level belum diisi.'}</div>
+        ${ms.played ? html`<div class="mm-plays" style="margin:8px 0"><span class="chip"><b>${ms.played}</b> match</span><span class="chip"><b>${ms.wins}</b> menang</span><span class="chip"><b>${ms.losses}</b> kalah</span>${ms.draws ? html`<span class="chip"><b>${ms.draws}</b> seri</span>` : ''}${ms.win_rate !== null ? html`<span class="chip">Menang <b>${ms.win_rate}%</b></span>` : ''}</div>
+        <div class="muted xs">${ms.recent.map(x => html`<div>${fdate(x.date)} · ${x.session} · ${x.result ? html`<b>${x.result === 'W' ? 'Menang' : x.result === 'L' ? 'Kalah' : 'Seri'}</b> ${x.score}` : 'belum ada skor'} · bareng ${x.partner || '—'} vs ${x.vs}</div>`)}</div>` : ''}</div>` : ''}
       <div class="grid g2" style="margin-bottom:14px"><div class="card"><div class="card-title"><h2>Profile</h2></div><div class="kv">
         <div><span>Member ID</span>${m.member_code}</div><div><span>Nickname</span>${m.nickname}</div>
         <div><span>WhatsApp</span>${m.whatsapp ? raw(`<a href="https://wa.me/${esc(m.whatsapp.replace('+', ''))}" target="_blank" rel="noopener">${esc(m.whatsapp)}</a>`) : '—'}</div>

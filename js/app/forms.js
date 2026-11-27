@@ -17,16 +17,20 @@ function confirmConflicts(cf) {
 }
 
 // ------------------------------------------------------------------ members
-function openMemberForm(member, onDone, opts = {}) {
+async function openMemberForm(member, onDone, opts = {}) {
   const editing = !!(member && member.id);
+  const sports = M().sports.filter(s => s.active), cur = editing ? (await GET(`/api/members/${member.id}/skills`)).skills : [];
+  const lvOpts = [{ v: '', l: 'Belum diisi' }, ...[['1', '1 · Newbie'], ['2', '2 · Pemula'], ['3', '3 · Menengah'], ['4', '4 · Mahir'], ['5', '5 · Jago']].map(([v, l]) => ({ v, l }))];
   const fields = [
     { name: 'nickname', label: 'Nickname', required: true, max: 60, full: true, hint: 'Shown everywhere in the app.' },
     { name: 'whatsapp', label: 'WhatsApp Number', type: 'tel', hint: 'Saved as +62… automatically.' },
     { name: 'notes', label: 'Notes', type: 'textarea', full: true, max: 500 },
+    ...sports.map(s => ({ name: 'skill_' + s.id, label: `Level ${s.name}`, type: 'select', options: lvOpts })),
     ...(editing ? [{ name: 'active', label: 'Active member', type: 'checkbox', full: true }] : []),
   ];
+  const skillVals = Object.fromEntries(cur.map(k => ['skill_' + k.sport_id, String(k.level)]));
   return formModal({
-    title: editing ? `Edit ${member.member_code}` : 'Add Member', fields, values: { ...member, active: editing ? member.active : 1 },
+    title: editing ? `Edit ${member.member_code}` : 'Add Member', fields, values: { ...member, ...skillVals, active: editing ? member.active : 1 },
     top: editing ? html`<div class="alert info" style="margin-bottom:12px">${icon('tag', 18)}<span>Member ID <b>${member.member_code}</b> is permanent and cannot be changed.</span></div>` : '',
     onSubmit: async (d, ctx) => {
       const body = { nickname: d.nickname, whatsapp: d.whatsapp, notes: d.notes, ...(editing ? { active: d.active } : {}) };
@@ -37,6 +41,8 @@ function openMemberForm(member, onDone, opts = {}) {
         if (e.data.code === 'duplicate_whatsapp' && await confirmBox({ title: 'Duplicate WhatsApp number', message: e.message + ' Save anyway?', confirmText: 'Save anyway' })) r = await send(true);
         else throw e;
       }
+      const mid = editing ? member.id : r.id, have = Object.fromEntries(cur.map(k => [k.sport_id, String(k.level)]));
+      for (const s of sports) { const nv = d['skill_' + s.id] || '', ov = have[s.id] || ''; if (nv !== ov) await api('PUT', '/api/member-skills', { member_id: mid, sport_id: s.id, level: nv }); }
       ctx.modal.close(); toast(editing ? 'Member updated' : `Member ${r.member_code} added`); onDone && onDone(r);
     },
   });
