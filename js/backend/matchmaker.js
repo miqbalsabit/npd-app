@@ -52,7 +52,8 @@
     for (let rd = 0; rd < R; rd++) {
       const isF = featRounds.has(rd);
       // who rests: most matches played first, never twice in a row if avoidable, strong players stay on featured rounds
-      let order = shuffle(P.slice(), r).sort((x, y) => (plays.get(y.id) - plays.get(x.id)) || (isF ? x.level - y.level : 0));
+      const topIds = new Set(P.slice().sort((x, y) => y.level - x.level || x.id - y.id).slice(0, size).map(p => p.id));   // the session's best group: never rests on a featured round
+      let order = shuffle(P.slice(), r).sort((x, y) => ((plays.get(y.id) - (isF && topIds.has(y.id) ? .5 : 0)) - (plays.get(x.id) - (isF && topIds.has(x.id) ? .5 : 0))) || (isF ? x.level - y.level : 0));
       const fresh = order.filter(p => !lastRoundRest.has(p.id)), tired = order.filter(p => lastRoundRest.has(p.id));
       const rest = fresh.concat(tired).slice(0, need), restIds = new Set(rest.map(p => p.id));
       const act = P.filter(p => !restIds.has(p.id)).map(p => p.id);
