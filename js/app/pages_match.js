@@ -3,7 +3,7 @@
 const MM_LEVELS = ['', '1 · Newbie', '2 · Pemula', '3 · Menengah', '4 · Mahir', '5 · Jago'];
 const mmState = {};   // per-session UI settings kept while navigating
 
-function mmSheetSvg(title, sub, names, matches, rest) {
+function mmSheetSvg(title, sub, names, matches, rest, logo) {
   const esc_ = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const nm = ids => ids.map(i => names[i] || '?').join(' & '), rounds = new Map();
   matches.forEach(m => { (rounds.get(m.round) || rounds.set(m.round, []).get(m.round)).push(m); });
@@ -13,17 +13,16 @@ function mmSheetSvg(title, sub, names, matches, rest) {
     for (const m of ms) {
       body += `<text x="60" y="${y + 24}" font-size="20" fill="#001F54" font-weight="700" font-family="Arial,sans-serif">Lap ${m.court}</text>`;
       body += `<text x="150" y="${y + 24}" font-size="22" fill="#001F54" font-family="Arial,sans-serif">${esc_(nm(m.a))}</text><text x="540" y="${y + 24}" font-size="18" fill="#BF0100" font-weight="800" text-anchor="middle" font-family="Arial,sans-serif">VS</text><text x="570" y="${y + 24}" font-size="22" fill="#001F54" font-family="Arial,sans-serif">${esc_(nm(m.b))}</text>`;
-      if (m.featured) body += `<text x="940" y="${y + 24}" font-size="18" font-weight="800" fill="#BF0100" text-anchor="end" font-family="Arial,sans-serif">★ SERU</text>`;
       y += 40;
     }
     const rs = (rest.get(r) || []); if (rs.length) { body += `<text x="60" y="${y + 18}" font-size="17" fill="#6B7A99" font-family="Arial,sans-serif">Istirahat: ${esc_(nm(rs))}</text>`; y += 30; }
     y += 44;
   }
   const H = y + 30;
-  return { H, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${H}" width="1000" height="${H}"><rect width="1000" height="${H}" fill="#F5F3EE"/><rect width="1000" height="110" fill="#004ECC"/><text x="40" y="58" font-size="34" font-weight="800" fill="#fff" font-style="italic" font-family="Arial Black,Arial,sans-serif">${esc_(title)}</text><text x="40" y="92" font-size="20" fill="#fff" font-family="Arial,sans-serif">${esc_(sub)}</text>${body}<text x="500" y="${H - 8}" font-size="15" fill="#6B7A99" text-anchor="middle" font-family="Arial,sans-serif">NPD · Network. Play. Discover.</text></svg>` };
+  return { H, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${H}" width="1000" height="${H}"><rect width="1000" height="${H}" fill="#F5F3EE"/><rect width="1000" height="110" fill="#004ECC"/><text x="40" y="58" font-size="${title.length > 24 ? 28 : 34}" font-weight="800" fill="#fff" font-style="italic" font-family="Arial Black,Arial,sans-serif">${esc_(title)}</text>${logo ? `<image href="${logo}" x="872" y="8" width="96" height="96" preserveAspectRatio="xMidYMid meet"/>` : ''}<text x="40" y="92" font-size="20" fill="#fff" font-family="Arial,sans-serif">${esc_(sub)}</text>${body}<text x="500" y="${H - 8}" font-size="15" fill="#6B7A99" text-anchor="middle" font-family="Arial,sans-serif">NPD · Network. Play. Discover.</text></svg>` };
 }
 async function mmShare(title, sub, names, matches, rest) {
-  const { H, svg } = mmSheetSvg(title, sub, names, matches, rest);
+  const logo = await LC.logo().catch(() => ''), { H, svg } = mmSheetSvg(title, sub, names, matches, rest, logo);
   const im = new Image(); await new Promise((ok, er) => { im.onload = ok; im.onerror = () => er(new Error('Gagal membuat gambar.')); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
   const c = document.createElement('canvas'); c.width = 2000; c.height = H * 2; c.getContext('2d').drawImage(im, 0, 0, 2000, H * 2);
   const blob = await new Promise(r => c.toBlob(r, 'image/png')), name = `match-${title.replace(/\W+/g, '-').toLowerCase()}.png`, file = new File([blob], name, { type: 'image/png' });
@@ -62,13 +61,13 @@ route('#/sessions/(\\d+)/match', id => guard(async () => {
         </div>
         <button class="btn primary" id="mm-go">${r.matches.length ? 'Generate ulang' : 'Generate match'}</button></div>` : ''}
       ${ops && !r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Match manual</h2><button class="btn sm" id="mm-add">${icon('plus', 16)} Tambah match manual</button></div><div class="muted small">Buat match sendiri tanpa generate: pilih pemain tiap tim.</div></div>` : ''}
-      ${r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Hasil match</h2><div class="actions">${ops ? html`<button class="btn sm" id="mm-add">${icon('plus', 16)} Tambah match</button>` : ''}<button class="btn sm" id="mm-png">Bagikan PNG</button>${ops ? html`<button class="btn sm danger" id="mm-del">Hapus</button>` : ''}</div></div>
+      ${r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Hasil match</h2><div class="actions">${ops ? html`<button class="btn sm" id="mm-add">${icon('plus', 16)} Tambah match</button>` : ''}<a class="btn sm" href="#/sessions/${id}/leaderboard">Leaderboard</a><button class="btn sm" id="mm-png">Bagikan PNG</button>${ops ? html`<button class="btn sm danger" id="mm-del">Hapus</button>` : ''}</div></div>
         <div class="muted small" style="margin-bottom:10px">${r.summary.matches} match · ${r.summary.rounds} ronde · main ${r.summary.min_plays === r.summary.max_plays ? html`<b>${r.summary.max_plays}x semua</b>` : html`<b>${r.summary.min_plays}–${r.summary.max_plays}x</b> per orang`}</div>
         ${[...byRound.entries()].map(([rd, ms]) => html`<div class="mm-round" data-rd="${rd}"><div class="mm-rh"><span>Ronde ${rd}</span>${ops && byRound.size > 1 ? html`<span class="mm-mv"><button class="mm-mb" data-rup="${rd}" aria-label="Naikkan ronde">▲</button><button class="mm-mb" data-rdn="${rd}" aria-label="Turunkan ronde">▼</button><span class="mm-grip" data-rdrag="${rd}" aria-label="Geser ronde" title="Tahan dan geser">⠿</span></span>` : ''}</div>${ms.map(m => html`<div class="mm-match${m.featured ? ' feat' : ''}"><div class="mm-c">Lap ${m.court}${m.featured ? html` <span class="mm-star">★ Seru</span>` : ''}${ops ? html` <button class="mm-x" data-medit="${m.id}" aria-label="Ubah match">ubah</button>` : ''}</div>
           <div class="mm-t"><span>${nm(m.a)}</span><span class="mm-vs">vs</span><span>${nm(m.b)}</span></div>
           <div class="mm-s"><input class="inp" type="number" min="0" max="99" data-sc="${m.id}" data-side="a" value="${m.score_a ?? ''}" ${ops ? '' : 'disabled'} aria-label="Skor tim 1"><span>–</span><input class="inp" type="number" min="0" max="99" data-sc="${m.id}" data-side="b" value="${m.score_b ?? ''}" ${ops ? '' : 'disabled'} aria-label="Skor tim 2"></div></div>`)}
           ${rest.get(rd).length ? html`<div class="muted xs mm-rest">Istirahat: ${nm(rest.get(rd))}</div>` : ''}</div>`)}
-        <h3 style="margin:14px 0 6px">Jumlah main</h3><div class="mm-plays">${r.summary.rows.map(x => html`<span class="chip">${x.name} <b>${x.plays}x</b>${x.wins ? html` · ${x.wins} menang` : ''}</span>`)}</div></div>` : ''}`);
+        <h3 style="margin:14px 0 6px">Jumlah main</h3><div class="mm-plays">${r.summary.rows.map(x => html`<span class="chip">${x.name} <b>${x.plays}x</b>${x.wins ? html` · ${x.wins} Win` : ''}</span>`)}</div></div>` : ''}`);
     r._byRound = byRound; r._rest = rest; cur = r;
   };
   let cur = null;

@@ -203,5 +203,33 @@
     const levels = T.filter('member_skills', k => k.member_id === mid).map(k => { const sp = T.get('sports', k.sport_id); return { sport: sp ? sp.name : '', level: k.level }; });
     return ok({ played, wins: w, losses: l, draws: dr, win_rate: w + l + dr ? Math.round(w * 100 / (w + l + dr)) : null, by_sport: [...bySport.values()], levels, recent: sortBy(rows, x => x.date).reverse().slice(0, 10) });
   });
+  // ---- member profile photos (small JPEG data URL kept in its own collection so member lists stay light)
+  const photoOf = mid => T.find('member_photos', x => x.member_id === mid);
+  add('GET', '/member-photos', 'view', () => ok({ photos: Object.fromEntries(T.all('member_photos').map(x => [x.member_id, x.data])) }));
+  add('PUT', '/members/<int:mid>/photo', 'operations', ({ body: d }, mid) => {
+    if (!T.get('members', mid)) throw new ApiError('Member tidak ditemukan.', 404);
+    const data = String(d.data || ''); if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(data)) throw new ApiError('Format foto tidak dikenali.'); if (data.length > 160000) throw new ApiError('Foto terlalu besar.');
+    const ex = photoOf(mid); if (ex) T.update('member_photos', ex.id, { data }); else T.insert('member_photos', { member_id: mid, data }); return ok();
+  });
+  add('DELETE', '/members/<int:mid>/photo', 'operations', (c, mid) => { const ex = photoOf(mid); if (ex) T.remove('member_photos', ex.id); return ok(); });
+
+  // ---- leaderboard: ranked by win rate (wins / scored matches). Filters: sport_id, session_id, from, to (YYYY-MM-DD), min (matches needed)
+  add('GET', '/leaderboard', 'view', ({ q }) => {
+    const sid = Math.trunc(Number(q.session_id)) || 0, sport = Math.trunc(Number(q.sport_id)) || 0, from = q.from || '', to = q.to || '', min = Math.max(1, Math.trunc(Number(q.min)) || (sid ? 1 : 3));
+    const stats = new Map(); let total = 0;
+    for (const m of T.all('session_matches')) {
+      if (m.score_a == null || m.score_b == null) continue;
+      const s = T.get('sessions', m.session_id); if (!s || s.status === 'Cancelled') continue;
+      if (sid && s.id !== sid) continue; if (sport && s.sport_id !== sport) continue; if (from && s.event_date < from) continue; if (to && s.event_date > to) continue;
+      total++; const A = [m.a1, m.a2].filter(x => x != null && x !== 0), B = [m.b1, m.b2].filter(x => x != null && x !== 0), d = m.score_a - m.score_b;
+      const put = (ids, res, diff) => ids.forEach(i => { const r = stats.get(i) || { member_id: i, played: 0, wins: 0, losses: 0, draws: 0, diff: 0 }; r.played++; r.diff += diff; if (res === 'W') r.wins++; else if (res === 'L') r.losses++; else r.draws++; stats.set(i, r); });
+      put(A, d > 0 ? 'W' : d < 0 ? 'L' : 'D', d); put(B, d < 0 ? 'W' : d > 0 ? 'L' : 'D', -d);
+    }
+    const rows = [...stats.values()].filter(r => r.played >= min && T.get('members', r.member_id)).map(r => { const m = T.get('members', r.member_id); return Object.assign(r, { nickname: m.nickname, member_code: m.member_code, win_rate: Math.round(r.wins * 1000 / r.played) / 10 }); });
+    rows.sort((x, y) => y.win_rate - x.win_rate || y.wins - x.wins || y.played - x.played || y.diff - x.diff || x.nickname.localeCompare(y.nickname));
+    rows.forEach((r, i) => { r.rank = i + 1; });
+    const s = sid ? T.get('sessions', sid) : null, sp = sport ? T.get('sports', sport) : null;
+    return ok({ rows, total_matches: total, min, session: s ? { id: s.id, name: s.name, date: s.event_date } : null, sport: sp ? sp.name : null });
+  });
   NPDB.matchmaker = { generate };
 })(typeof window !== 'undefined' ? window : globalThis);

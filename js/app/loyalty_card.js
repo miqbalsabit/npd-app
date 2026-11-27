@@ -8,6 +8,8 @@ const LC = (() => {
   let badgeURI = null;
   let reclubURI = null;
   const toURI = async u => { const b = await (await fetch(u)).blob(); return new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); }); };
+  let logoURI = null;
+  async function logo() { if (!logoURI) logoURI = await toURI('img/brand/badge_clean.png'); return logoURI; }   // badge without its white rim, for use on coloured backgrounds
   async function badge() { if (!badgeURI) badgeURI = await toURI('img/brand/badge.png'); if (!reclubURI) reclubURI = await toURI('img/brand/reclub.png').catch(() => ''); return badgeURI; }
   const t = (x, y, s, size, fill, o = {}) => `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}" font-family="${o.head ? HEAD : BODY}" font-weight="${o.w || 800}"${o.head || o.italic ? ' font-style="italic"' : ''} text-anchor="${o.a || 'start'}"${o.ls ? ` letter-spacing="${o.ls}"` : ''}${o.len ? ` textLength="${o.len}" lengthAdjust="spacingAndGlyphs"` : ''}>${esc(s)}</text>`;
   const star = (cx, cy, R, r, n, fill) => { const p = []; for (let i = 0; i < n * 2; i++) { const a = Math.PI * i / n - Math.PI / 2, rr = i % 2 ? r : R; p.push((cx + rr * Math.cos(a)).toFixed(1) + ',' + (cy + rr * Math.sin(a)).toFixed(1)); } return `<polygon points="${p.join(' ')}" fill="${fill}"/>`; };
@@ -120,5 +122,5 @@ const LC = (() => {
     const doc = `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Kartu Loyalty NPD</title><style>@page{size:114mm 84mm;margin:0}html,body{margin:0;background:#fff}.pg{width:114mm;height:84mm;page-break-after:always;overflow:hidden}.pg svg{width:114mm;height:84mm;display:block}@media screen{body{background:#ddd}.pg{margin:8px auto;box-shadow:0 1px 6px #0004}}</style></head><body>${pages}</body></html>`;
     saveDownload({ name: 'kartu-loyalty-npd.html', mime: 'text/html', data: doc, print: true });
   }
-  return { svg, badge, shareImage, printCards, cardFor };
+  return { svg, badge, logo, shareImage, printCards, cardFor, trophy };
 })();

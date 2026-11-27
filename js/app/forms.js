@@ -19,6 +19,7 @@ function confirmConflicts(cf) {
 // ------------------------------------------------------------------ members
 async function openMemberForm(member, onDone, opts = {}) {
   const editing = !!(member && member.id);
+  window.mfPhoto = undefined; if (editing) await PH.load();
   const sports = M().sports.filter(s => s.active), cur = editing ? (await GET(`/api/members/${member.id}/skills`)).skills : [];
   const lvOpts = [{ v: '', l: 'Belum diisi' }, ...[['1', '1 · Newbie'], ['2', '2 · Pemula'], ['3', '3 · Menengah'], ['4', '4 · Mahir'], ['5', '5 · Jago']].map(([v, l]) => ({ v, l }))];
   const fields = [
@@ -31,7 +32,8 @@ async function openMemberForm(member, onDone, opts = {}) {
   const skillVals = Object.fromEntries(cur.map(k => ['skill_' + k.sport_id, String(k.level)]));
   return formModal({
     title: editing ? `Edit ${member.member_code}` : 'Add Member', fields, values: { ...member, ...skillVals, active: editing ? member.active : 1 },
-    top: editing ? html`<div class="alert info" style="margin-bottom:12px">${icon('tag', 18)}<span>Member ID <b>${member.member_code}</b> is permanent and cannot be changed.</span></div>` : '',
+    top: html`${editing ? html`<div class="alert info" style="margin-bottom:12px">${icon('tag', 18)}<span>Member ID <b>${member.member_code}</b> is permanent and cannot be changed.</span></div>` : ''}
+      <div class="mf-photo"><span class="pav" id="mf-ph-prev" data-ini="${((member && member.nickname) || '?')[0]}" style="width:64px;height:64px;font-size:26px">${editing && PH.map[member.id] ? raw(`<img src="${PH.map[member.id]}" alt="">`) : ((member && member.nickname) || '?')[0]}</span><div><div class="small strong">Foto profil</div><label class="btn sm">Pilih foto<input type="file" id="mf-ph-in" accept="image/*" hidden></label> <button type="button" class="btn sm" id="mf-ph-del">Hapus</button></div></div>`,
     onSubmit: async (d, ctx) => {
       const body = { nickname: d.nickname, whatsapp: d.whatsapp, notes: d.notes, ...(editing ? { active: d.active } : {}) };
       const send = force => editing ? api('PUT', `/api/members/${member.id}`, { ...body, force }) : api('POST', '/api/members', { ...body, force }, { idem: ctx.key });
@@ -42,6 +44,7 @@ async function openMemberForm(member, onDone, opts = {}) {
         else throw e;
       }
       const mid = editing ? member.id : r.id, have = Object.fromEntries(cur.map(k => [k.sport_id, String(k.level)]));
+      if (window.mfPhoto !== undefined) { if (window.mfPhoto) await api('PUT', `/api/members/${mid}/photo`, { data: window.mfPhoto }); else await api('DELETE', `/api/members/${mid}/photo`); await PH.load(true); window.mfPhoto = undefined; }
       for (const s of sports) { const nv = d['skill_' + s.id] || '', ov = have[s.id] || ''; if (nv !== ov) await api('PUT', '/api/member-skills', { member_id: mid, sport_id: s.id, level: nv }); }
       ctx.modal.close(); toast(editing ? 'Member updated' : `Member ${r.member_code} added`); onDone && onDone(r);
     },

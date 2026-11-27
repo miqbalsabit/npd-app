@@ -6,14 +6,14 @@ const NAV = [
   { id: 'sessions', label: 'Sessions & Events', href: '#/sessions', icon: 'ball' },
   { id: 'calendar', label: 'Event Calendar', href: '#/calendar', icon: 'calendar' },
   { id: 'venues', label: 'Venues', href: '#/venues', icon: 'pin' },
-  { id: 'members', label: 'Members', href: '#/members', icon: 'users', sub: [['Member List', '#/members'], ['Member Activity', '#/activity']] },
+  { id: 'members', label: 'Members', href: '#/members', icon: 'users', sub: [['Member List', '#/members'], ['Member Activity', '#/activity'], ['Leaderboard', '#/leaderboard']] },
   { id: 'fin', label: 'Financial Management', href: '#/finance', icon: 'wallet', perm: 'finance', sub: [['Financial Overview', '#/finance'], ['Transactions', '#/transactions'], ['Revenue', '#/revenue'], ['Operational Expenses', '#/expenses'], ['Cash Flow', '#/cashflow']] },
   { id: 'profit', label: 'Profit Sharing', href: '#/profit/photographers', icon: 'coin', perm: 'finance', sub: [['Photography Allocation', '#/profit/photographers'], ['Rekening, Petty Cash & Utang', '#/profit/funds'], ['Organizer Profit Sharing', '#/profit/organizers']] },
   { id: 'reports', label: 'Reports', href: '#/reports', icon: 'pie' },
   { id: 'settings', label: 'Settings', href: '#/settings', icon: 'gear' },
 ];
 // route navId -> NAV group
-const NAV_OF = { create: 'sessions', dashboard: 'dashboard', sessions: 'sessions', calendar: 'calendar', venues: 'venues', members: 'members', activity: 'members', finance: 'fin', transactions: 'fin', revenue: 'fin', expenses: 'fin', cashflow: 'fin', profit: 'profit', reports: 'reports', settings: 'settings', install: 'settings' };
+const NAV_OF = { create: 'sessions', dashboard: 'dashboard', sessions: 'sessions', calendar: 'calendar', venues: 'venues', members: 'members', activity: 'members', leaderboard: 'members', finance: 'fin', transactions: 'fin', revenue: 'fin', expenses: 'fin', cashflow: 'fin', profit: 'profit', reports: 'reports', settings: 'settings', install: 'settings' };
 const navItems = () => NAV.filter(n => !n.perm || can(n.perm));
 
 function brandMark() {
@@ -99,7 +99,7 @@ function paintPill() {
 document.addEventListener('click', e => { if (e.target.closest('[data-sync-pill]')) { setState.tab = 'sync'; if (location.hash === '#/settings') NPD.render(); else location.hash = '#/settings'; } });
 
 // ------------------------------------------------------------------ router
-const TITLES = { dashboard: 'Dashboard', sessions: 'Sessions', calendar: 'Calendar', venues: 'Venues', members: 'Members', activity: 'Activity', finance: 'Financial', transactions: 'Transactions', revenue: 'Revenue', expenses: 'Operational Expenses', cashflow: 'Cash Flow', profit: 'Profit Sharing', reports: 'Reports', settings: 'Settings', install: 'Install' };
+const TITLES = { dashboard: 'Dashboard', sessions: 'Sessions', calendar: 'Calendar', venues: 'Venues', members: 'Members', activity: 'Activity', leaderboard: 'Leaderboard', finance: 'Financial', transactions: 'Transactions', revenue: 'Revenue', expenses: 'Operational Expenses', cashflow: 'Cash Flow', profit: 'Profit Sharing', reports: 'Reports', settings: 'Settings', install: 'Install' };
 NPD.render = function render() {
   if (!NPD.user || !$('#content')) return;
   const path = (location.hash || '#/dashboard').split('?')[0];
