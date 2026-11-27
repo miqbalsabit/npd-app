@@ -308,3 +308,10 @@ pre.json{white-space:pre-wrap;word-break:break-word;font-size:12px;background:va
 .chip{display:inline-block;background:#E6EEFB;border-radius:999px;padding:4px 10px;font-size:13px}
 
 .mm-x{border:0;background:none;color:#004ECC;font-weight:700;font-size:12px;text-decoration:underline;cursor:pointer;padding:0 4px}
+
+.mm-rh{display:flex;align-items:center;justify-content:space-between}
+.mm-mv{display:inline-flex;align-items:center;gap:4px}
+.mm-mb{border:1px solid var(--line,#e3e8f2);background:#fff;border-radius:8px;width:30px;height:30px;font-size:12px;color:#004ECC;cursor:pointer}
+.mm-grip{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;font-size:20px;color:#6B7A99;cursor:grab;touch-action:none;user-select:none;border-radius:8px;background:#EEF1F7}
+.mm-round.mm-drag{opacity:.75;box-shadow:0 6px 18px rgba(0,30,90,.18);border-color:#004ECC}
+.mm-nosel,.mm-nosel *{user-select:none!important;-webkit-user-select:none!important}

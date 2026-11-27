@@ -38,7 +38,7 @@ route('#/sessions/(\\d+)/match', id => guard(async () => {
     const r = await GET(`/api/sessions/${id}/matchup`); if (st.sel === null) st.sel = new Set(r.players.filter(p => p.eligible).map(p => p.member_id));
     if (st.host_level === null) st.host_level = r.host_level || 3;
     const n = r.players.filter(p => st.sel.has(p.member_id)).length, odd = n % 2 === 1, rounds = new Map(), rest = new Map();
-    const byRound = new Map(); r.matches.forEach(m => { (byRound.get(m.round) || byRound.set(m.round, []).get(m.round)).push(m); });
+    const byRound = new Map(); r.matches.slice().sort((x, y) => x.round - y.round || x.court - y.court).forEach(m => { (byRound.get(m.round) || byRound.set(m.round, []).get(m.round)).push(m); });
     const nameOf = i => r.names[i] || '?', nm = ids => ids.map(nameOf).join(' & ');
     // who rests each round = everyone in the match list that round is playing; rest = all others who played in other rounds
     const everyone = new Set(); r.matches.forEach(m => [...m.a, ...m.b].forEach(i => everyone.add(i)));
@@ -64,7 +64,7 @@ route('#/sessions/(\\d+)/match', id => guard(async () => {
       ${ops && !r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Match manual</h2><button class="btn sm" id="mm-add">${icon('plus', 16)} Tambah match manual</button></div><div class="muted small">Buat match sendiri tanpa generate: pilih pemain tiap tim.</div></div>` : ''}
       ${r.matches.length ? html`<div class="card" style="margin-bottom:14px"><div class="card-title"><h2>Hasil match</h2><div class="actions">${ops ? html`<button class="btn sm" id="mm-add">${icon('plus', 16)} Tambah match</button>` : ''}<button class="btn sm" id="mm-png">Bagikan PNG</button>${ops ? html`<button class="btn sm danger" id="mm-del">Hapus</button>` : ''}</div></div>
         <div class="muted small" style="margin-bottom:10px">${r.summary.matches} match · ${r.summary.rounds} ronde · main ${r.summary.min_plays === r.summary.max_plays ? html`<b>${r.summary.max_plays}x semua</b>` : html`<b>${r.summary.min_plays}–${r.summary.max_plays}x</b> per orang`}</div>
-        ${[...byRound.entries()].map(([rd, ms]) => html`<div class="mm-round"><div class="mm-rh">Ronde ${rd}</div>${ms.map(m => html`<div class="mm-match${m.featured ? ' feat' : ''}"><div class="mm-c">Lap ${m.court}${m.featured ? html` <span class="mm-star">★ Seru</span>` : ''}${ops ? html` <button class="mm-x" data-medit="${m.id}" aria-label="Ubah match">ubah</button>` : ''}</div>
+        ${[...byRound.entries()].map(([rd, ms]) => html`<div class="mm-round" data-rd="${rd}"><div class="mm-rh"><span>Ronde ${rd}</span>${ops && byRound.size > 1 ? html`<span class="mm-mv"><button class="mm-mb" data-rup="${rd}" aria-label="Naikkan ronde">▲</button><button class="mm-mb" data-rdn="${rd}" aria-label="Turunkan ronde">▼</button><span class="mm-grip" data-rdrag="${rd}" aria-label="Geser ronde" title="Tahan dan geser">⠿</span></span>` : ''}</div>${ms.map(m => html`<div class="mm-match${m.featured ? ' feat' : ''}"><div class="mm-c">Lap ${m.court}${m.featured ? html` <span class="mm-star">★ Seru</span>` : ''}${ops ? html` <button class="mm-x" data-medit="${m.id}" aria-label="Ubah match">ubah</button>` : ''}</div>
           <div class="mm-t"><span>${nm(m.a)}</span><span class="mm-vs">vs</span><span>${nm(m.b)}</span></div>
           <div class="mm-s"><input class="inp" type="number" min="0" max="99" data-sc="${m.id}" data-side="a" value="${m.score_a ?? ''}" ${ops ? '' : 'disabled'} aria-label="Skor tim 1"><span>–</span><input class="inp" type="number" min="0" max="99" data-sc="${m.id}" data-side="b" value="${m.score_b ?? ''}" ${ops ? '' : 'disabled'} aria-label="Skor tim 2"></div></div>`)}
           ${rest.get(rd).length ? html`<div class="muted xs mm-rest">Istirahat: ${nm(rest.get(rd))}</div>` : ''}</div>`)}
@@ -115,6 +115,23 @@ route('#/sessions/(\\d+)/match', id => guard(async () => {
       try { await send(false); done(); } catch (er) { if (er.status === 409 && await confirmBox({ title: 'Pemain bentrok', message: er.message, confirmText: 'Tetap simpan' })) { try { await send(true); done(); } catch (e2) { toast(e2.message, 'err'); } } else if (er.status !== 409) toast(er.message, 'err'); }
     });
   };
+  const saveOrder = async order => { try { await api('PUT', `/api/sessions/${id}/matchup/order`, { order }); toast('Urutan ronde disimpan'); } catch (er) { toast(er.message, 'err'); } load(); };
+  const roundsNow = () => [...cur._byRound.keys()].sort((x, y) => x - y);
+  on(v, 'click', '[data-rup]', ev => { const o = roundsNow(), i = o.indexOf(+ev.target.dataset.rup); if (i > 0) { [o[i - 1], o[i]] = [o[i], o[i - 1]]; saveOrder(o); } });
+  on(v, 'click', '[data-rdn]', ev => { const o = roundsNow(), i = o.indexOf(+ev.target.dataset.rdn); if (i >= 0 && i < o.length - 1) { [o[i + 1], o[i]] = [o[i], o[i + 1]]; saveOrder(o); } });
+  // drag a round by its grip (mouse and touch)
+  v.addEventListener('pointerdown', ev => {
+    const g = ev.target.closest && ev.target.closest('[data-rdrag]'); if (!g) return;
+    const el = g.closest('.mm-round'), parent = el.parentNode; ev.preventDefault(); el.classList.add('mm-drag'); document.body.classList.add('mm-nosel');
+    const move = e => {
+      const under = document.elementFromPoint(e.clientX, e.clientY), tgt = under && under.closest && under.closest('.mm-round'); if (!tgt || tgt === el || tgt.parentNode !== parent) return;
+      const rc = tgt.getBoundingClientRect(), after = e.clientY > rc.top + rc.height / 2;
+      if (after && tgt.nextSibling !== el) parent.insertBefore(el, tgt.nextSibling); else if (!after && tgt.previousSibling !== el) parent.insertBefore(el, tgt);
+    };
+    const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up); el.classList.remove('mm-drag'); document.body.classList.remove('mm-nosel');
+      const o = [...parent.querySelectorAll(':scope > .mm-round')].map(x => +x.dataset.rd); if (o.join() !== roundsNow().join()) saveOrder(o); else load(); };
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+  });
   on(v, 'click', '#mm-add', () => matchModal(null));
   on(v, 'click', '[data-medit]', ev => matchModal(cur.matches.find(x => x.id === +ev.target.dataset.medit)));
   on(v, 'click', '#mm-png', () => mmShare(cur.session.name, `${cur.session.sport} · ${fdate(cur.session.event_date)}`, cur.names, cur.matches, cur._rest).catch(e => toast(e.message, 'err')));

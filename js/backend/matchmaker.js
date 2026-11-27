@@ -172,6 +172,14 @@
     const r = T.insert('session_matches', Object.assign({ session_id: sid, batch: Date.now(), round, court, featured: d.featured ? 1 : 0, custom: 1, score_a: sa, score_b: sb }, slots(A, B)));
     return ok(view(r));
   });
+  // reorder rounds: body.order = the existing round numbers in their new order (position 1.. becomes the new round number)
+  add('PUT', '/sessions/<int:sid>/matchup/order', 'operations', ({ body: d }, sid) => {
+    sessionOf(sid); const ms = matchesOf(sid), cur = [...new Set(ms.map(m => m.round))].sort((x, y) => x - y), ord = (Array.isArray(d.order) ? d.order : []).map(Number);
+    if (ord.length !== cur.length || new Set(ord).size !== ord.length || !ord.every(x => cur.includes(x))) throw new ApiError('Urutan ronde tidak valid.');
+    const to = new Map(ord.map((old, i) => [old, i + 1]));
+    ms.forEach(m => { const n = to.get(m.round); if (n !== m.round) T.update('session_matches', m.id, { round: n }); });
+    return ok({ rounds: cur.length });
+  });
   add('DELETE', '/matches/<int:mid>', 'operations', (c, mid) => { if (!T.get('session_matches', mid)) throw new ApiError('Match tidak ditemukan.', 404); T.remove('session_matches', mid); return ok({ deleted: true }); });
   add('PUT', '/matches/<int:mid>', 'operations', ({ body: d }, mid) => {
     const m = T.get('session_matches', mid); if (!m) throw new ApiError('Match tidak ditemukan.', 404);
